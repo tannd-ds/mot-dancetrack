@@ -1,0 +1,5 @@
+# dataset
+interval: 9
+
+# train
+batch_size: 2048
