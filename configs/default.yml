@@ -2,4 +2,6 @@
 interval: 9
 
 # train
-batch_size: 2048
+batch_size: 512
+epochs: 100
+eval_every: 5

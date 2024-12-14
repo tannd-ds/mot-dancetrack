@@ -1,116 +1,153 @@
+import os
 from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from dataset.dataset import DiffMOTDataset, custom_collate_fn
-from models.simple import SimpleDiffMOTModel, TransformerDiffMOTModelV2, ResidualDiffMOTModel
+from models.simple import SimpleDiffMOTModel, TransformerDiffMOTModel
 from utils import calculate_iou, calculate_ade, original_shape
-
-batch_size = 512
-num_epochs = 100
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-import torch
 from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter('runs/Dec13_19-56-22_LAPTOP-1RBG8HEE')
 
-# Initialize the dataset and data loader
-train_path = "/home/tanndds/my/datasets/dancetrack/trackers_gt_t/train"
-val_path = "/home/tanndds/my/datasets/dancetrack/trackers_gt_t/val"
-train_dataset = DiffMOTDataset(train_path)
-val_dataset = DiffMOTDataset(val_path)
+class Tracker(object):
+    def __init__(self, config):
+        self.config = config
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.epoch = 0
 
-data_loader = DataLoader(
-    train_dataset,
-    batch_size=batch_size,
-    shuffle=True,
-    collate_fn=custom_collate_fn,
-    num_workers=4,
-    pin_memory=True,
-)
-val_data_loader = DataLoader(
-    val_dataset,
-    batch_size=batch_size,
-    shuffle=False,
-    collate_fn=custom_collate_fn,
-    num_workers=4,
-    pin_memory=True,
-)
-print(f"Number of samples in the Train dataset: {len(train_dataset)}")
-print(f"Number of samples in the validation dataset: {len(val_dataset)}")
+        self._init_model()
+        self._init_model_dir()
+        self._init_data_loader()
+        self._init_optimizer()
 
-# Define the model, loss function, and optimizer
-from_epoch = 109
-model = TransformerDiffMOTModelV2().to(device)
-model.load_state_dict(torch.load(f"experiments/transformers_c/{from_epoch}.pth"))
-print('Continue from epoch ', from_epoch+1)
 
-criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=0.0025)
-scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.98)
-scaler = torch.amp.GradScaler(device)
+    def train(self):
+        """ Train the model """
+        print("Training the model...")
+        for epoch in range(self.config['epochs']):
+            self.step(self.train_data_loader, train=True)
 
-def step(data_loader, train=True):
-    model.train() if train else model.eval()
-    epoch_loss = 0
+            if (epoch + 1) % self.config['eval_every'] == 0:
+                self.step(self.val_data_loader, train=False)
 
-    total_iou = 0
-    total_ade = 0
+                save_dir = os.path.join(self.config['model_dir'], f"epoch_{self.epoch}.pt")
+                torch.save(self.model.state_dict(), save_dir)
+                print(f"Model saved at {save_dir}")
 
-    for batch in tqdm(data_loader, desc=f"Epoch {epoch+1}/{num_epochs}"):
-        conditions = batch['condition'].float()
-        delta_bbox = batch['delta_bbox'].float()
+            self.scheduler.step()
+            self.epoch += 1
 
-        with torch.amp.autocast('cuda'):
-            predicted_delta_bbox = model(conditions.to(device))
-            loss = criterion(predicted_delta_bbox, delta_bbox.to(device))
 
-        if train:
-            optimizer.zero_grad()
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+    def step(self, data_loader, train=True):
+        self.model.train() if train else self.model.eval()
+        epoch_loss = 0
 
-        # MeanIoU and MeanADE
-        prev_bbox = conditions[:, -1, :4]
-        pred_bbox = prev_bbox + predicted_delta_bbox.cpu()
-        target_bbox = batch['cur_bbox']
-        w, h = batch['width'], batch['height']
+        total_iou = 0
+        total_ade = 0
 
-        orig_pred = original_shape(pred_bbox, w, h)
-        orig_target = original_shape(target_bbox, w, h)
+        for batch in tqdm(data_loader, desc=f"Epoch {self.epoch}/{self.config['epochs']}"):
+            for key in batch:
+                batch[key] = batch[key].to(self.device)
 
-        # Calculate IoU
-        total_iou += calculate_iou(orig_pred, orig_target)
-        total_ade += calculate_ade(orig_pred, orig_target)
+            conditions = batch['condition'].float()
+            delta_bbox = batch['delta_bbox'].float()
 
-        epoch_loss += loss.item()
+            with torch.amp.autocast('cuda'):
+                predicted_delta_bbox = self.model(conditions)
+                loss = self.criterion(predicted_delta_bbox, delta_bbox)
 
-    print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss/len(data_loader):.8f}, MeanIoU: {total_iou/len(data_loader):.8f}, MeanADE: {total_ade/len(data_loader):.8f}")
-    if train:
-        writer.add_scalar("Loss/train", epoch_loss/len(data_loader), epoch)
-        writer.add_scalar("MeanIoU/train", total_iou/len(data_loader), epoch)
-        writer.add_scalar("MeanADE/train", total_ade/len(data_loader), epoch)
-    else:
-        writer.add_scalar("Loss/val", epoch_loss/len(data_loader), epoch)
-        writer.add_scalar("MeanIoU/val", total_iou/len(data_loader), epoch)
-        writer.add_scalar("MeanADE/val", total_ade/len(data_loader), epoch)
+            if train:
+                self.optimizer.zero_grad()
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
 
-# Training loop
-for curr_epoch in range(num_epochs):
-    epoch = curr_epoch + from_epoch + 1
-    step(data_loader, train=True)
+            # MeanIoU and MeanADE
+            prev_bbox = conditions[:, -1, :4]
+            pred_bbox = prev_bbox + predicted_delta_bbox
+            target_bbox = batch['cur_bbox']
+            w, h = batch['width'], batch['height']
 
-    if (epoch+1) % 10 == 0:
-        step(val_data_loader, train=False)
+            orig_pred = original_shape(pred_bbox, w, h)
+            orig_target = original_shape(target_bbox, w, h)
 
-        # Save the model
-        # torch.save(model.state_dict(), "../DiffMOT/diffmot_model.pth")
-        torch.save(model.state_dict(), f"experiments/transformers_c/{epoch}.pth")
-        print("Model saved!")
+            # Calculate IoU
+            total_iou += calculate_iou(orig_pred, orig_target)
+            total_ade += calculate_ade(orig_pred, orig_target)
 
-    scheduler.step()
+            epoch_loss += loss.item()
 
-writer.flush()
-writer.close()
+        print(f"Epoch [{self.epoch}/{self.config['epochs']}],",
+              f"Loss: {epoch_loss / len(data_loader):.8f},",
+              f"MeanIoU: {total_iou / len(data_loader):.8f},",
+              f"MeanADE: {total_ade / len(data_loader):.8f}")
+
+        # if train:
+        #     writer.add_scalar("Loss/train", epoch_loss / len(data_loader), epoch)
+        #     writer.add_scalar("MeanIoU/train", total_iou / len(data_loader), epoch)
+        #     writer.add_scalar("MeanADE/train", total_ade / len(data_loader), epoch)
+        # else:
+        #     writer.add_scalar("Loss/val", epoch_loss / len(data_loader), epoch)
+        #     writer.add_scalar("MeanIoU/val", total_iou / len(data_loader), epoch)
+        #     writer.add_scalar("MeanADE/val", total_ade / len(data_loader), epoch)
+
+    def _init_data_loader(self):
+        train_path = os.path.join(self.config['data_dir'], 'train')
+        val_path = os.path.join(self.config['data_dir'], 'val')
+        train_dataset = DiffMOTDataset(train_path)
+        val_dataset = DiffMOTDataset(val_path)
+
+        train_data_loader = DataLoader(
+            train_dataset,
+            batch_size=self.config['batch_size'],
+            shuffle=True,
+            collate_fn=custom_collate_fn,
+            num_workers=4,
+            pin_memory=True,
+        )
+        val_data_loader = DataLoader(
+            val_dataset,
+            batch_size=self.config['batch_size'],
+            shuffle=False,
+            collate_fn=custom_collate_fn,
+            num_workers=4,
+            pin_memory=True,
+        )
+        print(f"Number of samples in the Train dataset: {len(train_dataset)}")
+        print(f"Number of samples in the validation dataset: {len(val_dataset)}")
+        self.train_data_loader = train_data_loader
+        self.val_data_loader = val_data_loader
+
+
+    def _init_model(self):
+        model = TransformerDiffMOTModel(self.config)
+
+        if self.config['resume']:
+            if not os.path.exists(self.config['resume']):
+                print('Checkpoint file not found, training from scratch...')
+            else:
+                # get the number of epochs from the checkpoint file
+                self.epoch = int(self.config['resume'].split('/')[-1].split('.')[0].split('_')[-1]) + 1
+                model.load_state_dict(torch.load(self.config['resume']))
+                print('Model loaded from ', self.config['resume'])
+
+        print('Number of Model\'s parameters: ', sum(p.numel() for p in model.parameters() if p.requires_grad))
+        self.model = model.to(self.device)
+
+
+    def _init_optimizer(self):
+        self.criterion = nn.MSELoss()
+        self.optimizer = optim.Adam(self.model.parameters(), lr=0.0025)
+        self.scheduler = optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.98)
+        self.scaler = torch.amp.GradScaler(self.device)
+
+    def _init_model_dir(self):
+        if not self.config['model_dir'].startswith('experiments'):
+            self.config['model_dir'] = os.path.join('experiments', self.config['model_dir'])
+        if not os.path.exists(self.config['model_dir']):
+            print('Create model directory:', self.config['model_dir'])
+            os.makedirs(self.config['model_dir'])
+
+
+    # writer.flush()
+    # writer.close()
