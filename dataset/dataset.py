@@ -8,8 +8,13 @@ from torch.utils.data import Dataset
 
 class DiffMOTDataset(Dataset):
     def __init__(self, path, config=None):
-        self.config = config
+        self.config = config.copy()
         self.path = path
+
+        self.config["augment_data"] = self.config.get("augment_data", False)
+        if path == os.path.join(self.config['data_dir'], 'val'):
+            self.config["augment_data"] = False
+            print("Augment data is disabled for the validation dataset.")
 
         try:
             self.interval = self.config.interval + 1
@@ -61,10 +66,26 @@ class DiffMOTDataset(Dataset):
 
             self.data.append(data_item)
 
+    @staticmethod
+    def augment_data(boxes):
+        """Augment the data item, by offset the boxes by a small random value."""
+        boxes = np.array(boxes)
+        xywh = boxes[:, :4]
+        xywh += np.random.normal(0, 0.0010, xywh.shape)
+        boxes[1:, :4] = xywh[1:]
+        delta_xywh = boxes[:, 4:]
+        delta_xywh[1:, :] = xywh[1:] - xywh[:-1]
+        boxes[:, 4:] = delta_xywh
+        return boxes
+
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, index):
+        if self.config["augment_data"]:
+            data = self.data[index].copy()
+            data['condition'] = self.augment_data(data['condition'])
+            return data
         return self.data[index]
 
     def show_image(self, index):
@@ -92,8 +113,8 @@ def custom_collate_fn(batch):
     return torch.utils.data.default_collate(batch)
 
 
-if __name__ == '__main__':
-    dataset = DiffMOTDataset("/home/tanndds/my/datasets/dancetrack/trackers_gt_t/train")
-    print(len(dataset))
-    print(dataset[0])
-    dataset.show_image(0)
+# if __name__ == '__main__':
+#     dataset = DiffMOTDataset("/home/tanndds/my/datasets/dancetrack/trackers_gt_t/train")
+#     print(len(dataset))
+#     print(dataset[0])
+#     dataset.show_image(0)

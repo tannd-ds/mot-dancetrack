@@ -1,11 +1,10 @@
 import os
+import yaml
 from tqdm import tqdm
-import torch
-import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from dataset.dataset import DiffMOTDataset, custom_collate_fn
-from models.simple import SimpleDiffMOTModel, TransformerDiffMOTModel
+from models.simple import *
 from utils import calculate_iou, calculate_ade, original_shape
 from torch.utils.tensorboard import SummaryWriter
 
@@ -19,6 +18,8 @@ class Tracker(object):
         self._init_model_dir()
         self._init_data_loader()
         self._init_optimizer()
+        if True:
+            self._init_tensorboard()
 
 
     def train(self):
@@ -82,20 +83,20 @@ class Tracker(object):
               f"MeanIoU: {total_iou / len(data_loader):.8f},",
               f"MeanADE: {total_ade / len(data_loader):.8f}")
 
-        # if train:
-        #     writer.add_scalar("Loss/train", epoch_loss / len(data_loader), epoch)
-        #     writer.add_scalar("MeanIoU/train", total_iou / len(data_loader), epoch)
-        #     writer.add_scalar("MeanADE/train", total_ade / len(data_loader), epoch)
-        # else:
-        #     writer.add_scalar("Loss/val", epoch_loss / len(data_loader), epoch)
-        #     writer.add_scalar("MeanIoU/val", total_iou / len(data_loader), epoch)
-        #     writer.add_scalar("MeanADE/val", total_ade / len(data_loader), epoch)
+        if train:
+            self.writer.add_scalar("Loss/train", epoch_loss / len(data_loader), self.epoch)
+            self.writer.add_scalar("MeanIoU/train", total_iou / len(data_loader), self.epoch)
+            self.writer.add_scalar("MeanADE/train", total_ade / len(data_loader), self.epoch)
+        else:
+            self.writer.add_scalar("Loss/val", epoch_loss / len(data_loader), self.epoch)
+            self.writer.add_scalar("MeanIoU/val", total_iou / len(data_loader), self.epoch)
+            self.writer.add_scalar("MeanADE/val", total_ade / len(data_loader), self.epoch)
 
     def _init_data_loader(self):
         train_path = os.path.join(self.config['data_dir'], 'train')
         val_path = os.path.join(self.config['data_dir'], 'val')
-        train_dataset = DiffMOTDataset(train_path)
-        val_dataset = DiffMOTDataset(val_path)
+        train_dataset = DiffMOTDataset(train_path, config=self.config)
+        val_dataset = DiffMOTDataset(val_path, config=self.config)
 
         train_data_loader = DataLoader(
             train_dataset,
@@ -137,7 +138,7 @@ class Tracker(object):
 
     def _init_optimizer(self):
         self.criterion = nn.MSELoss()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=0.0025)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.config['lr'])
         self.scheduler = optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.98)
         self.scaler = torch.amp.GradScaler(self.device)
 
@@ -148,6 +149,10 @@ class Tracker(object):
             print('Create model directory:', self.config['model_dir'])
             os.makedirs(self.config['model_dir'])
 
+        with open(os.path.join(self.config['model_dir'], 'config.yml'), 'w') as f:
+            yaml.dump(self.config, f)
 
-    # writer.flush()
-    # writer.close()
+    def _init_tensorboard(self):
+        writer = SummaryWriter(log_dir=self.config['model_dir'].replace('experiments', 'runs'))
+        self.writer = writer
+        print('Tensorboard logs will be saved at:', self.config['model_dir'].replace('experiments', 'runs'))

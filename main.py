@@ -30,6 +30,9 @@ def main():
     tracker = Tracker(config)
     tracker.train()
 
+    tracker.writer.flush()
+    tracker.writer.close()
+
 
 if __name__ == '__main__':
     main()
