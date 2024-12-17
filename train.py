@@ -3,7 +3,8 @@ import yaml
 from tqdm import tqdm
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from dataset.dataset import DiffMOTDataset, custom_collate_fn
+from dataset.dataset import TrackingDataset, custom_collate_fn
+from models.TransformerBase import TransformerDiffMOTModel
 from models.simple import *
 from utils import calculate_iou, calculate_ade, original_shape
 from torch.utils.tensorboard import SummaryWriter
@@ -95,8 +96,8 @@ class Tracker(object):
     def _init_data_loader(self):
         train_path = os.path.join(self.config['data_dir'], 'train')
         val_path = os.path.join(self.config['data_dir'], 'val')
-        train_dataset = DiffMOTDataset(train_path, config=self.config)
-        val_dataset = DiffMOTDataset(val_path, config=self.config)
+        train_dataset = TrackingDataset(train_path, config=self.config)
+        val_dataset = TrackingDataset(val_path, config=self.config)
 
         train_data_loader = DataLoader(
             train_dataset,

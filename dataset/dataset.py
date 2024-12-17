@@ -6,39 +6,45 @@ import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import Dataset
 
-class DiffMOTDataset(Dataset):
+class TrackingDataset(Dataset):
     def __init__(self, path, config=None):
         self.config = config.copy()
         self.path = path
 
         self.config["augment_data"] = self.config.get("augment_data", False)
+        # Force disable data augmentation for val set
         if path == os.path.join(self.config['data_dir'], 'val'):
             self.config["augment_data"] = False
-            print("Augment data is disabled for the validation dataset.")
 
-        try:
-            self.interval = self.config.interval + 1
-        except:
-            self.interval = 4 + 1 + 5
+        # Default interval is 5
+        self.interval = self.config.get("interval", 4) + 1
 
         self.trackers = {}
         self.data = []  
 
-        if os.path.isdir(path):
-            self.seqs = [s for s in os.listdir(path) if not s.startswith('.') and "gt_t" not in s]
-            self.seqs.sort()
-            
-            for seq in self.seqs:
-                trackerPath = os.path.join(path, seq, "img1/*.txt")
-                self.trackers[seq] = sorted(glob.glob(trackerPath))
-                
-                for pa in self.trackers[seq]:
-                    gt = np.loadtxt(pa, dtype=np.float32)
+        if not os.path.isdir(path):
+            raise ValueError(f"Path {path} is not a valid directory.")
 
-                    self.precompute_data(seq, gt)  # Precompute data for this sequence
+        self.seqs = [s for s in os.listdir(path) if not s.startswith('.') and "gt_t" not in s]
+        for seq in self.seqs:
+            trackerPath = os.path.join(path, seq, "img1/*.txt")
+            self.trackers[seq] = sorted(glob.glob(trackerPath))
+
+            for pa in self.trackers[seq]:
+                gt = np.loadtxt(pa, dtype=np.float32)
+                self.precompute_data(seq, gt)  # Precompute data for this sequence
 
     def precompute_data(self, seq, track_gt):
-        """Precompute and store data for the dataset."""
+        """
+        Precompute and store data for the dataset.
+
+        Parameters
+        ----------
+            seq: str
+                The sequence name.
+            track_gt: ndarray
+                Ground truth data for the sequence.
+        """
         for init_index in range(len(track_gt) - self.interval):
             cur_index = init_index + self.interval
             cur_gt = track_gt[cur_index]
@@ -51,8 +57,7 @@ class DiffMOTDataset(Dataset):
             delt = cur_bbox - boxes[-1]
 
             width, height = cur_gt[7:9]
-            image_path = self.path.replace("/trackers_gt_t", "") + f"/{seq}/img1/{int(cur_gt[1]):08d}.jpg"
-
+            image_path = os.path.join(self.path.replace("/trackers_gt_t", ""), seq, "img1", f"{int(cur_gt[1]):08d}.jpg")
 
             data_item = {
                 "cur_gt": cur_gt, # ndarray (9, )
@@ -71,7 +76,8 @@ class DiffMOTDataset(Dataset):
         """Augment the data item, by offset the boxes by a small random value."""
         boxes = np.array(boxes)
         xywh = boxes[:, :4]
-        xywh += np.random.normal(0, 0.0010, xywh.shape)
+        xywh += np.random.normal(0, 0.001, xywh.shape)
+
         boxes[1:, :4] = xywh[1:]
         delta_xywh = boxes[:, 4:]
         delta_xywh[1:, :] = xywh[1:] - xywh[:-1]
