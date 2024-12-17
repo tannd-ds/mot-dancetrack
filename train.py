@@ -4,7 +4,9 @@ from tqdm import tqdm
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from dataset.dataset import TrackingDataset, custom_collate_fn
-from models.TransformerBase import TransformerDiffMOTModel
+from models.TransformerBase import *
+from models.Autoencoder import *
+from models.Convolution import *
 from models.simple import *
 from utils import calculate_iou, calculate_ade, original_shape
 from torch.utils.tensorboard import SummaryWriter
@@ -36,7 +38,6 @@ class Tracker(object):
                 torch.save(self.model.state_dict(), save_dir)
                 print(f"Model saved at {save_dir}")
 
-            self.scheduler.step()
             self.epoch += 1
 
 
@@ -55,8 +56,15 @@ class Tracker(object):
             delta_bbox = batch['delta_bbox'].float()
 
             with torch.amp.autocast('cuda'):
-                predicted_delta_bbox = self.model(conditions)
-                loss = self.criterion(predicted_delta_bbox, delta_bbox)
+                if self.config['network'] == 'autoencoder':
+                    recon, predicted_delta_bbox = self.model(conditions)
+                    recon = recon.view(-1, 9, 8)
+                    recon_loss = self.criterion(recon, conditions)
+                    delta_loss = self.criterion(predicted_delta_bbox, delta_bbox)
+                    loss = recon_loss + delta_loss
+                else:
+                    predicted_delta_bbox = self.model(conditions)
+                    loss = self.criterion(predicted_delta_bbox, delta_bbox)
 
             if train:
                 self.optimizer.zero_grad()
@@ -93,6 +101,9 @@ class Tracker(object):
             self.writer.add_scalar("MeanIoU/val", total_iou / len(data_loader), self.epoch)
             self.writer.add_scalar("MeanADE/val", total_ade / len(data_loader), self.epoch)
 
+        self.scheduler.step()
+
+
     def _init_data_loader(self):
         train_path = os.path.join(self.config['data_dir'], 'train')
         val_path = os.path.join(self.config['data_dir'], 'val')
@@ -122,7 +133,14 @@ class Tracker(object):
 
 
     def _init_model(self):
-        model = TransformerDiffMOTModel(self.config)
+        if self.config['network'] == 'transformer':
+            model = TransformerPositionPredictor(self.config)
+        elif self.config['network'] == 'fc':
+            model = FCPositionPredictor(self.config)
+        elif self.config['network'] == 'autoencoder':
+            model = AutoEncoderPositionPredictor(self.config)
+        elif self.config['network'] == 'cnn':
+            model = LargerCNNBBoxPredictor(self.config)
 
         if self.config['resume']:
             if not os.path.exists(self.config['resume']):

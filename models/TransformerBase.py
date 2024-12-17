@@ -12,15 +12,37 @@ class LearnablePositionalEncoding(nn.Module):
         return self.encoding[:, :seq_len, :]
 
 
-class TransformerDiffMOTModel(BasePositionPredictor):
+class MLP(nn.Module):
+  def __init__(self, in_features, out_features, dropout = 0.1):
+    super(MLP, self).__init__()
+    self.layer_norm = nn.LayerNorm(in_features)
+    self.dropout = nn.Dropout(dropout)
+    self.dense_layer = nn.Sequential(
+        nn.Linear(in_features, in_features * 2),
+        nn.ReLU(),
+        nn.Dropout(dropout),
+        nn.Linear(in_features * 2, in_features),
+        nn.ReLU(),
+        nn.Dropout(dropout),
+        nn.Linear(in_features, out_features)
+    )
+
+  def forward(self, x):
+    normalized_x = self.layer_norm(x)
+    ffn_x = self.dense_layer(normalized_x)
+    output_x = self.dropout(ffn_x)
+    return output_x
+
+
+class TransformerPositionPredictor(BasePositionPredictor):
     def __init__(self, config):
-        super(TransformerDiffMOTModel, self).__init__(config)
+        super(TransformerPositionPredictor, self).__init__(config)
 
         # TransformerDecoderLayer setup
         self.embedding_dim = 8  # Input feature size (x, y, w, h, delta_x, delta_y, delta_w, delta_h)
-        self.num_heads = 4
-        self.hidden_dim = 256
-        self.num_layers = 4
+        self.num_heads = 8
+        self.hidden_dim = 512
+        self.num_layers = 8
         self.dropout_rate = 0.1
 
         self.input_projection = nn.Linear(self.embedding_dim, self.hidden_dim)  # Make input into higher dim
@@ -39,8 +61,9 @@ class TransformerDiffMOTModel(BasePositionPredictor):
         self.positional_encoding = LearnablePositionalEncoding(self.hidden_dim)
 
         # Fully connected layers for output
-        self.fc1 = nn.Linear(self.hidden_dim, self.hidden_dim // 2)
-        self.fc2 = nn.Linear(self.hidden_dim // 2, 4)  # Output delta_bbox (batch_size, 4)
+        # self.fc1 = nn.Linear(self.hidden_dim, self.hidden_dim // 2)
+        # self.fc2 = nn.Linear(self.hidden_dim // 2, 4)  # Output delta_bbox (batch_size, 4)
+        self.predictor = MLP(self.hidden_dim, 4, self.dropout_rate)
 
         # Batch normalization for regularization
         self.batch_norm1 = nn.BatchNorm1d(self.hidden_dim // 2)
@@ -64,9 +87,10 @@ class TransformerDiffMOTModel(BasePositionPredictor):
         # Decode using Transformer
         output = self.transformer_decoder(query, memory)  # Decode conditions
         output = output[:, -1, :]  # Use the last position
-        output = self.fc1(output)
-        output = self.batch_norm1(output)  # Apply batch normalization
-        output = torch.relu(output)  # Apply non-linearity
-        output = self.dropout(output)  # Additional dropout
-        output = self.fc2(output)  # Final output layer
+        # output = self.fc1(output)
+        # output = self.batch_norm1(output)  # Apply batch normalization
+        # output = torch.relu(output)  # Apply non-linearity
+        # output = self.dropout(output)  # Additional dropout
+        # output = self.fc2(output)  # Final output layer
+        output = self.predictor(output)
         return output
