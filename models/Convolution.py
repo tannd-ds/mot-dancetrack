@@ -111,10 +111,6 @@ class LargeCNNPredictor(BasePositionPredictor):
         return delta_bbox
 
 
-import torch
-import torch.nn as nn
-
-
 class LargerCNNBBoxPredictor(BasePositionPredictor):
     """
     Larger CNN model with additional layers, dense connections, and increased width.
@@ -189,6 +185,39 @@ class LargerCNNBBoxPredictor(BasePositionPredictor):
 
         return delta_bbox
 
+
+
+class Conv2dPredictor(BasePositionPredictor):
+    def __init__(self, config):
+        super(Conv2dPredictor, self).__init__(config)
+        self.conv1 = nn.Conv2d(in_channels=1,
+                               out_channels=32,
+                               kernel_size=(1, 3),
+                               stride=1,
+                               padding=(0, 1))
+        self.conv2 = nn.Conv2d(in_channels=32,
+                               out_channels=64,
+                               kernel_size=(1, 3),
+                               stride=1,
+                               padding=0)
+        self.conv3 = nn.Conv2d(in_channels=64,
+                               out_channels=128,
+                               kernel_size=(1, 3),
+                               stride=1,
+                               padding=0)
+
+        self.fc1 = nn.Linear(8 * (self.config['interval']-4) * 128, 64)
+        self.fc2 = nn.Linear(64, 4)
+
+    def forward(self, conditions):
+        x = conditions.view(-1, 1, 8, self.config['interval']) # (batch_size, 1, 8, interval)
+        x = torch.relu(self.conv1(x)) # (batch_size, 32, 8, interval)
+        x = torch.relu(self.conv2(x)) # (batch_size, 64, 8, interval-2)
+        x = torch.relu(self.conv3(x)) # (batch_size, 128, 8, interval-4)
+        x = x.view(x.size(0), -1) # (batch_size, 8 * (interval-4) * 128)
+        x = torch.relu(self.fc1(x))
+        delta_bbox = self.fc2(x)
+        return delta_bbox
 
 if __name__ == '__main__':
     model = LargeCNNPredictor({})
