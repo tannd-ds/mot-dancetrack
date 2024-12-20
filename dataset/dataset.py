@@ -10,11 +10,18 @@ class TrackingDataset(Dataset):
     def __init__(self, path, config=None):
         self.config = config.copy()
         self.path = path
+        self.set = path.split("/")[-1]
 
         self.config["augment_data"] = self.config.get("augment_data", False)
         # Force disable data augmentation for val set
-        if path == os.path.join(self.config['data_dir'], 'val'):
+        if self.set == 'val':
+            print("Disabling data augmentation for validation set.")
             self.config["augment_data"] = False
+
+        if self.set == 'train':
+            self.aug_random_var = 0.001
+        else:
+            self.aug_random_var = 0.0025
 
         # Default interval is 5
         self.interval = self.config.get("interval", 4) + 1
@@ -71,12 +78,11 @@ class TrackingDataset(Dataset):
 
             self.data.append(data_item)
 
-    @staticmethod
-    def augment_data(boxes):
+    def augment_data(self, boxes):
         """Augment the data item, by offset the boxes by a small random value."""
         boxes = np.array(boxes)
         xywh = boxes[:, :4]
-        xywh += np.random.normal(0, 0.001, xywh.shape)
+        xywh += np.random.normal(0, self.aug_random_var, xywh.shape)
 
         boxes[1:, :4] = xywh[1:]
         delta_xywh = boxes[:, 4:]

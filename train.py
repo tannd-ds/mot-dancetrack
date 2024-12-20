@@ -4,12 +4,14 @@ from tqdm import tqdm
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from dataset.dataset import TrackingDataset, custom_collate_fn
+from utils import calculate_iou, calculate_ade, original_shape
+from torch.utils.tensorboard import SummaryWriter
+from sklearn.model_selection import KFold
+
 from models.TransformerBase import *
 from models.Autoencoder import *
 from models.Convolution import *
 from models.simple import *
-from utils import calculate_iou, calculate_ade, original_shape
-from torch.utils.tensorboard import SummaryWriter
 
 class Tracker(object):
     def __init__(self, config):
@@ -27,9 +29,42 @@ class Tracker(object):
 
     def train(self):
         """ Train the model """
+        torch.backends.cudnn.benchmark = True
+
         print("Training the model...")
         for epoch in range(self.config['epochs']):
-            self.step(self.train_data_loader, train=True)
+
+            kfold = KFold(n_splits=5, shuffle=True)
+            train_indices, val_indices = next(kfold.split(self.train_data_loader.dataset))
+
+            train_set = torch.utils.data.Subset(self.train_data_loader.dataset, train_indices)
+            val_set = torch.utils.data.Subset(self.train_data_loader.dataset, val_indices)
+
+            train_set_loader = DataLoader(
+                train_set,
+                batch_size=self.config['batch_size'],
+                shuffle=True,
+                collate_fn=custom_collate_fn,
+                num_workers=4,
+                pin_memory=True,
+            )
+            val_set_loader = DataLoader(
+                val_set,
+                batch_size=self.config['batch_size'],
+                shuffle=False,
+                collate_fn=custom_collate_fn,
+                num_workers=4,
+                pin_memory=True,
+            )
+
+            # set terminal text color to green
+            print('\033[92m', end='')
+            self.step(train_set_loader, train=True)
+            # set terminal text color to yellow
+            print('\033[93m', end='')
+            self.step(val_set_loader, train=False, log_writer=False)
+            # set terminal text color to white
+            print('\033[0m', end='')
 
             if (epoch + 1) % self.config['eval_every'] == 0:
                 self.step(self.val_data_loader, train=False)
@@ -41,7 +76,7 @@ class Tracker(object):
             self.epoch += 1
 
 
-    def step(self, data_loader, train=True):
+    def step(self, data_loader, train=True, log_writer=True):
         self.model.train() if train else self.model.eval()
         epoch_loss = 0
 
@@ -62,6 +97,9 @@ class Tracker(object):
                     recon_loss = self.criterion(recon, conditions)
                     delta_loss = self.criterion(predicted_delta_bbox, delta_bbox)
                     loss = recon_loss + delta_loss
+                elif self.config['network'] == 'vae':
+                    recon, predicted_delta_bbox, mu, logvar = self.model(conditions)
+                    loss = self.model.loss_function(recon, conditions, mu, logvar)
                 else:
                     predicted_delta_bbox = self.model(conditions)
                     loss = self.criterion(predicted_delta_bbox, delta_bbox)
@@ -92,14 +130,15 @@ class Tracker(object):
               f"MeanIoU: {total_iou / len(data_loader):.8f},",
               f"MeanADE: {total_ade / len(data_loader):.8f}")
 
-        if train:
-            self.writer.add_scalar("Loss/train", epoch_loss / len(data_loader), self.epoch)
-            self.writer.add_scalar("MeanIoU/train", total_iou / len(data_loader), self.epoch)
-            self.writer.add_scalar("MeanADE/train", total_ade / len(data_loader), self.epoch)
-        else:
-            self.writer.add_scalar("Loss/val", epoch_loss / len(data_loader), self.epoch)
-            self.writer.add_scalar("MeanIoU/val", total_iou / len(data_loader), self.epoch)
-            self.writer.add_scalar("MeanADE/val", total_ade / len(data_loader), self.epoch)
+        if log_writer:
+            if train:
+                self.writer.add_scalar("Loss/train", epoch_loss / len(data_loader), self.epoch)
+                self.writer.add_scalar("MeanIoU/train", total_iou / len(data_loader), self.epoch)
+                self.writer.add_scalar("MeanADE/train", total_ade / len(data_loader), self.epoch)
+            else:
+                self.writer.add_scalar("Loss/val", epoch_loss / len(data_loader), self.epoch)
+                self.writer.add_scalar("MeanIoU/val", total_iou / len(data_loader), self.epoch)
+                self.writer.add_scalar("MeanADE/val", total_ade / len(data_loader), self.epoch)
 
         self.scheduler.step()
 
@@ -140,7 +179,9 @@ class Tracker(object):
         elif self.config['network'] == 'autoencoder':
             model = AutoEncoderPositionPredictor(self.config)
         elif self.config['network'] == 'cnn':
-            model = LargerCNNBBoxPredictor(self.config)
+            model = Conv2dPredictor(self.config)
+        elif self.config['network'] == 'vae':
+            model = VAEPositionPredictor(self.config)
 
         if self.config['resume']:
             if not os.path.exists(self.config['resume']):

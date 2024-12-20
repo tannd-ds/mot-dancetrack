@@ -40,9 +40,9 @@ class TransformerPositionPredictor(BasePositionPredictor):
 
         # TransformerDecoderLayer setup
         self.embedding_dim = 8  # Input feature size (x, y, w, h, delta_x, delta_y, delta_w, delta_h)
-        self.num_heads = 8
-        self.hidden_dim = 512
-        self.num_layers = 8
+        self.num_heads = 4
+        self.hidden_dim = 128
+        self.num_layers = 4
         self.dropout_rate = 0.1
 
         self.input_projection = nn.Linear(self.embedding_dim, self.hidden_dim)  # Make input into higher dim
