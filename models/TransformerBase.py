@@ -35,11 +35,11 @@ class MLP(nn.Module):
 
 
 class TransformerPositionPredictor(BasePositionPredictor):
-    def __init__(self, config):
+    def __init__(self, config, emb_dim=8):
         super(TransformerPositionPredictor, self).__init__(config)
 
         # TransformerDecoderLayer setup
-        self.embedding_dim = 8  # Input feature size (x, y, w, h, delta_x, delta_y, delta_w, delta_h)
+        self.embedding_dim = emb_dim  # Input feature size (x, y, w, h, delta_x, delta_y, delta_w, delta_h)
         self.num_heads = 4
         self.hidden_dim = 128
         self.num_layers = 4

@@ -23,22 +23,19 @@ class Tracker(object):
         self._init_model_dir()
         self._init_data_loader()
         self._init_optimizer()
-        if True:
-            self._init_tensorboard()
+        self._init_tensorboard()
 
 
     def train(self):
         """ Train the model """
         torch.backends.cudnn.benchmark = True
+        k_fold = KFold(n_splits=5, shuffle=True)
 
         print("Training the model...")
         for epoch in range(self.config['epochs']):
-
-            kfold = KFold(n_splits=5, shuffle=True)
-            train_indices, val_indices = next(kfold.split(self.train_data_loader.dataset))
-
-            train_set = torch.utils.data.Subset(self.train_data_loader.dataset, train_indices)
-            val_set = torch.utils.data.Subset(self.train_data_loader.dataset, val_indices)
+            train_indices, val_indices = next(k_fold.split(self.train_data))
+            train_set = torch.utils.data.Subset(self.train_data, train_indices)
+            val_set = torch.utils.data.Subset(self.train_data, val_indices)
 
             train_set_loader = DataLoader(
                 train_set,
@@ -57,14 +54,11 @@ class Tracker(object):
                 pin_memory=True,
             )
 
-            # set terminal text color to green
-            print('\033[92m', end='')
+            print('\033[92m', end='') # green
             self.step(train_set_loader, train=True)
-            # set terminal text color to yellow
-            print('\033[93m', end='')
+            print('\033[93m', end='') # yellow
             self.step(val_set_loader, train=False, log_writer=False)
-            # set terminal text color to white
-            print('\033[0m', end='')
+            print('\033[0m', end='') # white
 
             if (epoch + 1) % self.config['eval_every'] == 0:
                 self.step(self.val_data_loader, train=False)
@@ -148,15 +142,9 @@ class Tracker(object):
         val_path = os.path.join(self.config['data_dir'], 'val')
         train_dataset = TrackingDataset(train_path, config=self.config)
         val_dataset = TrackingDataset(val_path, config=self.config)
+        print(f"Number of samples in the Train dataset: {len(train_dataset)}")
+        print(f"Number of samples in the validation dataset: {len(val_dataset)}")
 
-        train_data_loader = DataLoader(
-            train_dataset,
-            batch_size=self.config['batch_size'],
-            shuffle=True,
-            collate_fn=custom_collate_fn,
-            num_workers=4,
-            pin_memory=True,
-        )
         val_data_loader = DataLoader(
             val_dataset,
             batch_size=self.config['batch_size'],
@@ -165,15 +153,14 @@ class Tracker(object):
             num_workers=4,
             pin_memory=True,
         )
-        print(f"Number of samples in the Train dataset: {len(train_dataset)}")
-        print(f"Number of samples in the validation dataset: {len(val_dataset)}")
-        self.train_data_loader = train_data_loader
+        self.train_data = train_dataset
+        self.val_data = val_dataset
         self.val_data_loader = val_data_loader
 
 
     def _init_model(self):
         if self.config['network'] == 'transformer':
-            model = TransformerPositionPredictor(self.config)
+            model = TransformerPositionPredictor(self.config, emb_dim=8)
         elif self.config['network'] == 'fc':
             model = FCPositionPredictor(self.config)
         elif self.config['network'] == 'autoencoder':
@@ -207,7 +194,7 @@ class Tracker(object):
             self.config['model_dir'] = os.path.join('experiments', self.config['model_dir'])
         if not os.path.exists(self.config['model_dir']):
             print('Create model directory:', self.config['model_dir'])
-            os.makedirs(self.config['model_dir'])
+            os.makedirs(self.config['model_dir'], exist_ok=True)
 
         with open(os.path.join(self.config['model_dir'], 'config.yml'), 'w') as f:
             yaml.dump(self.config, f)
