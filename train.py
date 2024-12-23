@@ -3,7 +3,7 @@ import yaml
 from tqdm import tqdm
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from dataset.dataset import TrackingDataset, custom_collate_fn
+from dataset.dataset import TrackingDataset, custom_collate_fn, augment_data
 from utils import calculate_iou, calculate_ade, original_shape
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.model_selection import KFold
@@ -24,6 +24,8 @@ class Tracker(object):
         self._init_data_loader()
         self._init_optimizer()
         self._init_tensorboard()
+
+        os.makedirs(os.path.join(self.config['model_dir'], 'weights'), exist_ok=True)
 
 
     def train(self):
@@ -63,7 +65,7 @@ class Tracker(object):
             if (epoch + 1) % self.config['eval_every'] == 0:
                 self.step(self.val_data_loader, train=False)
 
-                save_dir = os.path.join(self.config['model_dir'], f"epoch_{self.epoch}.pt")
+                save_dir = os.path.join(self.config['model_dir'], 'weights', f"epoch_{self.epoch}.pt")
                 torch.save(self.model.state_dict(), save_dir)
                 print(f"Model saved at {save_dir}")
 
@@ -81,7 +83,7 @@ class Tracker(object):
             for key in batch:
                 batch[key] = batch[key].to(self.device)
 
-            conditions = batch['condition'].float()
+            conditions = augment_data(batch['condition'].float())
             delta_bbox = batch['delta_bbox'].float()
 
             with torch.amp.autocast('cuda'):
@@ -200,6 +202,8 @@ class Tracker(object):
             yaml.dump(self.config, f)
 
     def _init_tensorboard(self):
-        writer = SummaryWriter(log_dir=self.config['model_dir'].replace('experiments', 'runs'))
+        exp_name = self.config['model_dir'].split('experiments/')[1]
+        log_dir = os.path.join('experiments', exp_name, 'logs')
+        writer = SummaryWriter(log_dir=log_dir)
         self.writer = writer
-        print('Tensorboard logs will be saved at:', self.config['model_dir'].replace('experiments', 'runs'))
+        print('Tensorboard logs will be saved at:', log_dir)
