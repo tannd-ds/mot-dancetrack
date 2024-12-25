@@ -135,8 +135,18 @@ class Conv2dPredictor(BasePositionPredictor):
                                out_channels=64,
                                kernel_size=(1, 3),
                                stride=1,
-                               padding=0)
+                               padding=(0, 1))
         self.conv3 = nn.Conv2d(in_channels=64,
+                               out_channels=128,
+                               kernel_size=(1, 3),
+                               stride=1,
+                               padding=(0, 1))
+        self.conv4 = nn.Conv2d(in_channels=128,
+                               out_channels=256,
+                               kernel_size=(1, 3),
+                               stride=1,
+                               padding=0)
+        self.conv5 = nn.Conv2d(in_channels=256,
                                out_channels=128,
                                kernel_size=(1, 3),
                                stride=1,
@@ -148,8 +158,10 @@ class Conv2dPredictor(BasePositionPredictor):
     def forward(self, conditions):
         x = conditions.view(-1, 1, self.input_dim, self.config['interval']) # (batch_size, 1, 8, interval)
         x = torch.relu(self.conv1(x)) # (batch_size, 32, 8, interval)
-        x = torch.relu(self.conv2(x)) # (batch_size, 64, 8, interval-2)
-        x = torch.relu(self.conv3(x)) # (batch_size, 128, 8, interval-4)
+        x = torch.relu(self.conv2(x)) # (batch_size, 64, 8, interval)
+        x = torch.relu(self.conv3(x)) # (batch_size, 128, 8, interval)
+        x = torch.relu(self.conv4(x)) # (batch_size, 256, 8, interval-2)
+        x = torch.relu(self.conv5(x)) # (batch_size, 128, 8, interval-4)
         x = x.view(x.size(0), -1) # (batch_size, 8 * (interval-4) * 128)
         x = torch.relu(self.fc1(x))
         delta_bbox = self.fc2(x)
