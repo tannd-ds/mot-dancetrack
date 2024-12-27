@@ -71,7 +71,10 @@ class Tracker(object):
                 print('\033[0m', end='') # white
 
             if (epoch + 1) % self.config['eval_every'] == 0:
-                self.step(self.val_data_loader, train=False)
+                if self.config['network'] == 'huy_cnn':
+                    self.huy_step(self.val_data_loader, train=False)
+                else:
+                    self.step(self.val_data_loader, train=False)
 
                 save_dir = os.path.join(self.config['model_dir'], 'weights', f"epoch_{self.epoch}.pt")
                 torch.save(self.model.state_dict(), save_dir)
