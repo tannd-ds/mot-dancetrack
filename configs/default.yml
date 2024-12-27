@@ -1,5 +1,5 @@
 # dataset
-interval: 5
+interval: 9
 
 # train
 augment_data: True
