@@ -144,6 +144,7 @@ class Tracker(object):
               f"MeanADE_FromDelta: {delta_ade / len(data_loader):.8f}",
               f"MeanIoU_FromPosition: {position_iou / len(data_loader):.8f},",
               f"MeanADE_FromPosition: {position_ade / len(data_loader):.8f}")
+        print('               ')
 
         if log_writer:
             if train:
