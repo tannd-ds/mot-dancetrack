@@ -1,9 +1,9 @@
 # dataset
-interval: 5
+interval: 9
 
 # train
 augment_data: True
-batch_size: 512
+batch_size: 2048
 lr: 0.00025
 epochs: 200
 eval_every: 2
