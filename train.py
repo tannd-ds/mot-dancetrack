@@ -70,11 +70,8 @@ class Tracker(object):
                 self.step(val_set_loader, train=False, log_writer=False)
                 print('\033[0m', end='') # white
 
-            if (epoch + 1) % self.config['eval_every'] == 0: 
-                if self.config['network'] == 'huy_cnn':
-                    self.huy_step(self.val_data_loader, train=False)
-                else:
-                    self.step(self.val_data_loader, train=False)
+            if (epoch + 1) % self.config['eval_every'] == 0:
+                self.step(self.val_data_loader, train=False)
 
                 save_dir = os.path.join(self.config['model_dir'], 'weights', f"epoch_{self.epoch}.pt")
                 torch.save(self.model.state_dict(), save_dir)
@@ -99,19 +96,29 @@ class Tracker(object):
             conditions = augment_data(batch['condition'].float())
             delta_bbox = batch['delta_bbox'].float()
             target_bbox = batch['cur_bbox'].float()
+            prev_bbox = conditions[:, -1, :4]
 
             # Khúc này của Huy nè bà con
             if self.config['num_classifiers'] == 1:
                 prediction = self.model(conditions)
                 predicted_position, predicted_delta_bbox = prediction[:, :4], prediction[:, 4:]
                 ground_truth = torch.cat([target_bbox, delta_bbox], dim=1)
-                loss = self.criterion(prediction, ground_truth)
+
+                loss_prediction = self.criterion(prediction, ground_truth)
+                predicted_prev_bbox = predicted_position - predicted_delta_bbox
+                loss_prev_bbox = self.criterion(predicted_prev_bbox, prev_bbox)
+
+                loss = loss_prediction + loss_prev_bbox
 
             elif self.config['num_classifiers'] > 1:
                 (predicted_delta_bbox, predicted_position) = self.model(conditions)
+                predicted_prev_bbox = predicted_position - predicted_delta_bbox
+
                 delta_loss = self.delta_criterion(predicted_delta_bbox, delta_bbox)
                 position_loss = self.position_criterion(predicted_position, target_bbox)
-                loss = delta_loss + position_loss
+                prev_bbox_loss = self.position_criterion(predicted_prev_bbox, prev_bbox)
+                
+                loss = delta_loss + position_loss + prev_bbox_loss
 
             if train:
                 self.optimizer.zero_grad()
@@ -119,7 +126,6 @@ class Tracker(object):
                 self.optimizer.step()  
 
             # MeanIoU and MeanADE
-            prev_bbox = conditions[:, -1, :4]
             pred_bbox_from_delta = prev_bbox + predicted_delta_bbox # From delta_bbox
             pred_bbox_from_position = predicted_position # From position
             
@@ -144,7 +150,7 @@ class Tracker(object):
               f"MeanADE_FromDelta: {delta_ade / len(data_loader):.8f}",
               f"MeanIoU_FromPosition: {position_iou / len(data_loader):.8f},",
               f"MeanADE_FromPosition: {position_ade / len(data_loader):.8f}")
-        print('               ')
+        print('                ')
 
         if log_writer:
             if train:
