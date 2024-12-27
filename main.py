@@ -1,7 +1,7 @@
 import argparse
 import yaml
 from train import Tracker
-
+from easydict import EasyDict
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -21,7 +21,7 @@ def parse_args():
 def main():
     args = parse_args()
     with open(args.config) as f:
-        config = yaml.safe_load(f)
+        config = EasyDict(yaml.safe_load(f))
 
     for k, v in vars(args).items():
         if v is not None:
