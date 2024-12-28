@@ -1,3 +1,5 @@
+import glob
+import os
 import time
 
 import matplotlib.pyplot as plt
@@ -44,7 +46,7 @@ class TrackingDataset(Dataset):
     def precompute_data(self, seq, track_gt):
         """
         Precompute and store data for the dataset.
-
+        
         Parameters
         ----------
             seq: str
@@ -68,6 +70,29 @@ class TrackingDataset(Dataset):
                 "height": track_gt[curr_idx, 8],  # float
             }
             self.data.append(data_item)
+
+            # # Skip every other frame for the validation set
+            # if self.set == 'val':
+            #     continue
+            #
+            # jump = 2
+            # aug_init_index = init_index - (self.interval-5) * jump # TODO: This equation is wrong, fix it
+            # if aug_init_index < 0:
+            #     continue
+            # data_item = {
+            #     "cur_gt": track_gt[curr_idx],  # ndarray (9, )
+            #     "cur_bbox": track_gt[curr_idx, 2:6],  # ndarray (4, )
+            #     "condition": conds[aug_init_index:curr_idx:jump],  # ndarray (interval, 8)
+            #     "delta_bbox": deltas[curr_idx, :],  # ndarray (4, )
+            #     "width": track_gt[curr_idx, 7],  # float
+            #     "height": track_gt[curr_idx, 8],  # float
+            # }
+            # # check if data_item['condition'] is valid
+            # if data_item['condition'].shape == (self.interval, 8):
+            #     self.data.append(data_item)
+            # else:
+            #     print(f"Invalid data shape: {data_item['condition'].shape}")
+
 
     def augment_data(self, boxes):
         """Augment the data item, by offset the boxes by a small random value."""
@@ -118,8 +143,36 @@ def custom_collate_fn(batch):
     return torch.utils.data.default_collate(batch)
 
 
-# if __name__ == '__main__':
-#     dataset = DiffMOTDataset("/home/tanndds/my/datasets/dancetrack/trackers_gt_t/train")
-#     print(len(dataset))
-#     print(dataset[0])
-#     dataset.show_image(0)
+
+# Load the configuration file
+import yaml
+
+
+if __name__ == '__main__':
+    config_path = '../configs/default.yml'
+    with open(config_path, 'r') as file:
+        config = yaml.safe_load(file)
+    config['augment_data'] = False
+
+    dataset = TrackingDataset("/home/tanndds/my/datasets/dancetrack/trackers_gt_t/train", config)
+    # print(len(dataset))
+    # n = 100_000_000
+    # tic = time.time()
+    # for _ in range(n):
+    #     d = dataset[0]
+    #
+    # print(f"Time taken to load {n} samples: {time.time() - tic:.2f}s")
+
+    # create dataloader
+    from torch.utils.data import DataLoader
+    train_loader = DataLoader(dataset, batch_size=512, shuffle=True, collate_fn=custom_collate_fn)
+
+    # iterate over the dataset
+    runtime = 0
+    for i, data in enumerate(train_loader):
+        print(data['condition'].shape)
+        # tic = time.time()
+        data['condition'] = augment_data(data['condition'])
+        # runtime += time.time() - tic
+
+    print(f"Time taken to augment the data: {runtime:.4f}s")

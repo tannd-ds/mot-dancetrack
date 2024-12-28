@@ -10,7 +10,7 @@ def parse_args():
     parser.add_argument('--config', default='configs/default.yml', help='Path to the config file')
     parser.add_argument('--dataset', default=None, help='Dataset name')
     parser.add_argument('--data_dir', default=None, help='Path to the data directory')
-    parser.add_argument('--network', choices=['unet', 'transformer', 'fc', 'autoencoder', 'vae', 'cnn'], help='Unet version')
+    parser.add_argument('--network', choices=['unet', 'transformer', 'fc', 'autoencoder', 'vae', 'cnn', 'tcn'], help='Unet version')
     parser.add_argument('--model_dir', default=None, help='Path to the model directory, to save logs and checkpoints')
     parser.add_argument('--epochs', type=int, default=None, help='Number of epochs')
     parser.add_argument('--resume', default=False, help='Path to the checkpoint file')

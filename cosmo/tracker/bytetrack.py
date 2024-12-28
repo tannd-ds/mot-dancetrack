@@ -16,7 +16,7 @@ class STrack(BaseTrack):
         self.xywh_pmemory = deque([], maxlen=buffer_size)
         self.xywh_amemory = deque([], maxlen=buffer_size)
 
-        self.conds = deque([], maxlen=9)
+        self.conds = deque([], maxlen=15)
 
 
         self._tlwh = np.asarray(tlwh, dtype=float)

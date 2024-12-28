@@ -4,6 +4,8 @@ from tqdm import tqdm
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
+
+from cosmo.models.tcn import TCNPredictor
 from dataset.dataset import TrackingDataset, custom_collate_fn, augment_data
 from utils import calculate_iou, calculate_ade, original_shape
 from torch.utils.tensorboard import SummaryWriter
@@ -308,6 +310,8 @@ class Tracker(object):
             model = Conv2dPredictor(self.config)
         elif self.config['network'] == 'vae':
             model = VAEPositionPredictor(self.config)
+        elif self.config['network'] == 'tcn':
+            model = TCNPredictor(config=self.config, num_inputs=8, num_channels=[16, 32, 64, 128, 256], kernel_size=3, dropout=0.2)
 
         if self.config['resume']:
             if not os.path.exists(self.config['resume']):
