@@ -1,11 +1,11 @@
 import time
-import os
-import glob
-import numpy as np
-from PIL import Image
+
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
+from PIL import Image
 from torch.utils.data import Dataset
+
 
 class TrackingDataset(Dataset):
     def __init__(self, path, config=None):
@@ -56,18 +56,17 @@ class TrackingDataset(Dataset):
         deltas = np.diff(boxes, axis=0)
         conds = np.concatenate([boxes[:-1], deltas], axis=1)
 
-        for init_index in range(len(track_gt) - self.interval - 1):
+        for init_index in range(0, len(track_gt) - self.interval - 1):
             curr_idx = init_index + self.interval
 
             data_item = {
                 "cur_gt": track_gt[curr_idx],  # ndarray (9, )
                 "cur_bbox": track_gt[curr_idx, 2:6],  # ndarray (4, )
-                "condition": conds[init_index:curr_idx],  # ndarray (4, 8)
+                "condition": conds[init_index:curr_idx],  # ndarray (interval, 8)
                 "delta_bbox": deltas[curr_idx, :],  # ndarray (4, )
                 "width": track_gt[curr_idx, 7],  # float
                 "height": track_gt[curr_idx, 8],  # float
             }
-
             self.data.append(data_item)
 
     def augment_data(self, boxes):
@@ -86,10 +85,6 @@ class TrackingDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, index):
-        # if self.config["augment_data"]:
-        #     data = self.data[index].copy()
-        #     data['condition'] = self.augment_data(data['condition'])
-        #     return data
         return self.data[index]
 
     def show_image(self, index):

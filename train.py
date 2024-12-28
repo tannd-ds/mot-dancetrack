@@ -1,6 +1,7 @@
 import os
 import yaml
 from tqdm import tqdm
+import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from dataset.dataset import TrackingDataset, custom_collate_fn, augment_data
@@ -8,10 +9,11 @@ from utils import calculate_iou, calculate_ade, original_shape
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.model_selection import KFold
 
-from models.TransformerBase import *
-from models.Autoencoder import *
-from models.Convolution import *
-from models.simple import *
+from cosmo.models.TransformerBase import *
+from cosmo.models.Autoencoder import *
+from cosmo.models.Convolution import *
+from cosmo.models.simple import *
+
 
 class Tracker(object):
     def __init__(self, config):
@@ -19,13 +21,14 @@ class Tracker(object):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.epoch = 0
 
-        self._init_model()
         self._init_model_dir()
-        self._init_data_loader()
-        self._init_optimizer()
-        self._init_tensorboard()
+        self._init_model()
+        if not self.config['eval']:
+            self._init_data_loader()
+            self._init_optimizer()
+            self._init_tensorboard()
 
-        os.makedirs(os.path.join(self.config['model_dir'], 'weights'), exist_ok=True)
+            os.makedirs(os.path.join(self.config['model_dir'], 'weights'), exist_ok=True)
 
 
     def train(self):
@@ -70,6 +73,7 @@ class Tracker(object):
                 print(f"Model saved at {save_dir}")
 
             self.epoch += 1
+            self.scheduler.step()
 
 
     def step(self, data_loader, train=True, log_writer=True):
@@ -132,12 +136,134 @@ class Tracker(object):
                 self.writer.add_scalar("MeanIoU/train", total_iou / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanADE/train", total_ade / len(data_loader), self.epoch)
             else:
+                # Show current learning_rate
+                for param_group in self.optimizer.param_groups:
+                    print(f"Current learning rate: {param_group['lr']:.8f}")
                 self.writer.add_scalar("Loss/val", epoch_loss / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanIoU/val", total_iou / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanADE/val", total_ade / len(data_loader), self.epoch)
 
-        self.scheduler.step()
 
+    def eval(self):
+        """ Evaluate the model """
+        import numpy as np
+        import cv2
+        from cosmo.tracker.bytetrack import BYTETracker
+        from cosmo.tracking_utils.log import logger
+        from cosmo.tracking_utils.timer import Timer
+
+        def write_results(filename, results, data_type='mot'):
+            if data_type == 'mot':
+                save_format = '{frame},{id},{x1},{y1},{w},{h},1,-1,-1,-1\n'
+            elif data_type == 'kitti':
+                save_format = '{frame} {id} pedestrian 0 0 -10 {x1} {y1} {x2} {y2} -10 -10 -10 -1000 -1000 -1000 -10\n'
+            else:
+                raise ValueError(data_type)
+
+            with open(filename, 'w') as f:
+                for frame_id, tlwhs, track_ids in results:
+                    if data_type == 'kitti':
+                        frame_id -= 1
+                    for tlwh, track_id in zip(tlwhs, track_ids):
+                        if track_id < 0:
+                            continue
+                        x1, y1, w, h = tlwh
+                        x2, y2 = x1 + w, y1 + h
+                        line = save_format.format(frame=frame_id, id=track_id, x1=x1, y1=y1, x2=x2, y2=y2, w=w, h=h)
+                        f.write(line)
+            logger.info('save results to {}'.format(filename))
+
+        det_root = self.config['det_dir']
+        det_folder_name = '/detections_yolox_x_mix/'
+        if det_folder_name in det_root:
+            print('Use mix detection')
+            img_root = det_root.replace(det_folder_name, '/')
+        else:
+            img_root = det_root.replace('/detections/', '/')
+
+        seqs = [s for s in os.listdir(det_root)]
+        seqs.sort()
+
+        for seq in seqs:
+            print(seq)
+            det_path = os.path.join(det_root, seq)
+            img_path = os.path.join(img_root, seq, 'img1')
+
+            info_path = os.path.join(self.config['info_dir'], seq, 'seqinfo.ini')
+            seq_info = open(info_path).read()
+            seq_width = int(seq_info[seq_info.find('imWidth=') + 8:seq_info.find('\nimHeight')])
+            seq_height = int(seq_info[seq_info.find('imHeight=') + 9:seq_info.find('\nimExt')])
+
+            tracker = BYTETracker(self.config)
+            timer = Timer()
+            results = []
+            frame_id = 0
+
+            frames = [s for s in os.listdir(det_path)]
+            frames.sort()
+            imgs = [s for s in os.listdir(img_path) if not s.startswith('.')]
+            imgs.sort()
+
+            video_path = os.path.join(self.config['info_dir'], seq, 'output.mp4')
+            logger.info(f"video save_path is {video_path}")
+            # vid_writer = cv2.VideoWriter(
+            #     video_path, cv2.VideoWriter_fourcc(*"mp4v"), 30, (int(seq_width), int(seq_height))
+            # )
+
+            for i, f in enumerate(frames):
+                if frame_id % 10 == 0:
+                    logger.info('Processing frame {} ({:.2f} fps)'.format(frame_id, 1. / max(1e-5, timer.average_time)))
+
+                timer.tic()
+                f_path = os.path.join(det_path, f)
+                dets = np.loadtxt(f_path, dtype=np.float32, delimiter=',').reshape(-1, 6)[:, 1:6]
+
+                im_path = os.path.join(img_path, imgs[i])
+                img = cv2.imread(im_path)
+                tag = f"{seq}:{frame_id+1}"
+
+                # track
+                online_targets = tracker.update(dets, self.model, frame_id, seq_width, seq_height, tag, img)
+                online_tlwhs = []
+                online_ids = []
+                for t in online_targets:
+                    tlwh = t.tlwh
+                    tid = t.track_id
+                    online_tlwhs.append(tlwh)
+                    online_ids.append(tid)
+                timer.toc()
+
+                # save results
+                results.append((frame_id + 1, online_tlwhs, online_ids))
+
+                # visualization
+                # online_im = plot_tracking(
+                #     img, online_tlwhs, online_ids, frame_id=frame_id + 1, fps=1. / timer.average_time
+                # )
+                # cv2.imshow('online_im', online_im)
+                # if cv2.waitKey(1) & 0xFF == ord('q'):
+                #     break
+
+                # vid_writer.write(online_im)
+
+                frame_id += 1
+
+            tracker.dump_cache()
+            result_root = self.get_eval_dir
+            os.makedirs(result_root, exist_ok=True)
+            result_filename = os.path.join(result_root, '{}.txt'.format(seq))
+            write_results(result_filename, results)
+
+        # Run trackEval
+        cmd = f"""python /home/tanndds/my/uav-track/TrackEval/scripts/run_visdrone.py \
+        --BENCHMARK {self.config['dataset']} \
+        --DO_PREPROC False  \
+        --SPLIT_TO_EVAL val \
+        --USE_PARALLEL True \
+        --TRACKERS_FOLDER {self.config['model_dir']}/results/ \
+        --TRACKERS_TO_EVAL epoch_{self.config['epochs']}
+        """
+        os.system(cmd)
 
     def _init_data_loader(self):
         train_path = os.path.join(self.config['data_dir'], 'train')
@@ -181,6 +307,16 @@ class Tracker(object):
                 model.load_state_dict(torch.load(self.config['resume']))
                 print('Model loaded from ', self.config['resume'])
 
+        if self.config['eval']:
+            weight_dir = os.path.join(self.config['model_dir'], 'weights', f"epoch_{self.config['epochs']}.pt")
+            if not os.path.exists(weight_dir):
+                print(f'Checkpoint file {weight_dir} not found, evaluation failed...')
+                exit()
+            else:
+                model.load_state_dict(torch.load(weight_dir))
+                print('Model loaded from ', weight_dir)
+                self._init_eval_dir()
+
         print('Number of Model\'s parameters: ', sum(p.numel() for p in model.parameters() if p.requires_grad))
         self.model = model.to(self.device)
 
@@ -201,9 +337,27 @@ class Tracker(object):
         with open(os.path.join(self.config['model_dir'], 'config.yml'), 'w') as f:
             yaml.dump(self.config, f)
 
+    def _init_eval_dir(self):
+        eval_dir = os.path.join(self.config['model_dir'],
+                                'results',
+                                f'{self.config["dataset"]}-val',
+                                f'epoch_{self.config["epochs"]}',
+                                'data')
+        os.makedirs(eval_dir, exist_ok=True)
+        return eval_dir
+
+
     def _init_tensorboard(self):
-        exp_name = self.config['model_dir'].split('experiments/')[1]
-        log_dir = os.path.join('experiments', exp_name, 'logs')
+        log_dir = os.path.join('experiments', self.get_exp_name, 'logs')
         writer = SummaryWriter(log_dir=log_dir)
         self.writer = writer
         print('Tensorboard logs will be saved at:', log_dir)
+
+    @property
+    def get_eval_dir(self):
+        return self._init_eval_dir()
+
+    @property
+    def get_exp_name(self):
+        return self.config['model_dir'].split('experiments/')[1]
+

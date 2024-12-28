@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from models.Base import BasePositionPredictor
+from cosmo.models.Base import BasePositionPredictor
 
 
 class FCPositionPredictor(BasePositionPredictor):
