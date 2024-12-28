@@ -1,4 +1,3 @@
-# Force user to specify if eval
 eval: True
 
 interval: 9

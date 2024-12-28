@@ -71,29 +71,6 @@ class TrackingDataset(Dataset):
             }
             self.data.append(data_item)
 
-            # # Skip every other frame for the validation set
-            # if self.set == 'val':
-            #     continue
-            #
-            # jump = 2
-            # aug_init_index = init_index - (self.interval-5) * jump # TODO: This equation is wrong, fix it
-            # if aug_init_index < 0:
-            #     continue
-            # data_item = {
-            #     "cur_gt": track_gt[curr_idx],  # ndarray (9, )
-            #     "cur_bbox": track_gt[curr_idx, 2:6],  # ndarray (4, )
-            #     "condition": conds[aug_init_index:curr_idx:jump],  # ndarray (interval, 8)
-            #     "delta_bbox": deltas[curr_idx, :],  # ndarray (4, )
-            #     "width": track_gt[curr_idx, 7],  # float
-            #     "height": track_gt[curr_idx, 8],  # float
-            # }
-            # # check if data_item['condition'] is valid
-            # if data_item['condition'].shape == (self.interval, 8):
-            #     self.data.append(data_item)
-            # else:
-            #     print(f"Invalid data shape: {data_item['condition'].shape}")
-
-
     def augment_data(self, boxes):
         """Augment the data item, by offset the boxes by a small random value."""
         boxes = np.array(boxes)
@@ -120,7 +97,6 @@ class TrackingDataset(Dataset):
         # Open the image using PIL
         img = Image.open(image_path)
 
-            
         # Display the image with matplotlib
         plt.imshow(img)
         plt.axis("off")  # Hide axis for a cleaner look

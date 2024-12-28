@@ -214,8 +214,8 @@ class Tracker(object):
             imgs = [s for s in os.listdir(img_path) if not s.startswith('.')]
             imgs.sort()
 
-            video_path = os.path.join(self.config['info_dir'], seq, 'output.mp4')
-            logger.info(f"video save_path is {video_path}")
+            # video_path = os.path.join(self.config['info_dir'], seq, 'output.mp4')
+            # logger.info(f"video save_path is {video_path}")
             # vid_writer = cv2.VideoWriter(
             #     video_path, cv2.VideoWriter_fourcc(*"mp4v"), 30, (int(seq_width), int(seq_height))
             # )
@@ -251,7 +251,7 @@ class Tracker(object):
                 #     img, online_tlwhs, online_ids, frame_id=frame_id + 1, fps=1. / timer.average_time
                 # )
                 # cv2.imshow('online_im', online_im)
-                # if cv2.waitKey(0) & 0xFF == ord('q'):
+                # if cv2.waitKey(1) & 0xFF == ord('q'):
                 #     break
 
                 # vid_writer.write(online_im)

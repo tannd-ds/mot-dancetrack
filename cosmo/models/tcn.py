@@ -20,8 +20,8 @@ class TCNResidualBlock(nn.Module):
             padding=(kernel_size - 1) * dilation,
             dilation=dilation
         )
-        self.weight_norm1 = nn.utils.weight_norm(self.conv1)
-        self.weight_norm2 = nn.utils.weight_norm(self.conv2)
+        self.weight_norm1 = nn.utils.parametrizations.weight_norm(self.conv1)
+        self.weight_norm2 = nn.utils.parametrizations.weight_norm(self.conv2)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
         self.downsample = nn.Conv1d(in_channels, out_channels, kernel_size=1) if in_channels != out_channels else None
@@ -97,8 +97,9 @@ class TCNPredictor(BasePositionPredictor):
 
 # Example usage
 if __name__ == "__main__":
-    x = torch.randn(512, 8, 15) # (Batch_size, n_input_feat, interval)
-    model = TCNPredictor(num_inputs=8, num_channels=[32, 64, 128, 256, 128], kernel_size=3, dropout=0.3)
+    x = torch.randn(512, 100, 8) # (Batch_size, n_input_feat, interval)
+    model = TCNPredictor(config={}, num_inputs=8, num_channels=[32, 64, 128, 256, 128], kernel_size=3, dropout=0.3)
+    print('Parameters:', sum(p.numel() for p in model.parameters() if p.requires_grad))
     output = model(x)
     print(output.shape)  # Output shape should be (8, 4)
 

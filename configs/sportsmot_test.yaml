@@ -1,0 +1,27 @@
+eval: True
+
+interval: 9
+
+# train
+data_dir: '/home/tanndds/my/datasets/sportsmot/trackers_gt_t/'
+augment_data: True
+lr: 0.0001
+epochs: 100
+batch_size: 512
+eval_every: 2
+gpus: [0,1,2,3]
+
+# Testing
+dataset: sports
+det_dir: "/home/tanndds/my/datasets/sportsmot/detections_yolox_x_mix/test"
+info_dir: '/home/tanndds/my/datasets/sportsmot/test'
+
+reid_dir: "./cache/SportsMOT/embeddings_yolox_x_mix"
+high_thres: 0.6
+low_thres: 0.4
+w_assoc_emb: 2.0
+aw_param: 1.2
+preprocess_workers: 16
+
+device: cuda
+eval_device: cuda
