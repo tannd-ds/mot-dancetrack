@@ -13,6 +13,7 @@ from cosmo.models.TransformerBase import *
 from cosmo.models.Autoencoder import *
 from cosmo.models.Convolution import *
 from cosmo.models.simple import *
+from cosmo.tracking_utils.visualization import plot_tracking
 
 
 class Tracker(object):
@@ -23,10 +24,10 @@ class Tracker(object):
 
         self._init_model_dir()
         self._init_model()
+        self._init_writer()
         if not self.config['eval']:
             self._init_data_loader()
             self._init_optimizer()
-            self._init_tensorboard()
 
             os.makedirs(os.path.join(self.config['model_dir'], 'weights'), exist_ok=True)
 
@@ -135,6 +136,7 @@ class Tracker(object):
                 self.writer.add_scalar("Loss/train", epoch_loss / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanIoU/train", total_iou / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanADE/train", total_ade / len(data_loader), self.epoch)
+                self.writer.add_scalar("LR", self.optimizer.param_groups[0]['lr'], self.epoch)
             else:
                 # Show current learning_rate
                 for param_group in self.optimizer.param_groups:
@@ -182,6 +184,12 @@ class Tracker(object):
             img_root = det_root.replace('/detections/', '/')
 
         seqs = [s for s in os.listdir(det_root)]
+        if self.config.get('small', False):
+            seqs = ['dancetrack0005', 'dancetrack0014', 'dancetrack0026',
+            'dancetrack0035', 'dancetrack0043', 'dancetrack0073',
+            'dancetrack0090', 'dancetrack0007', 'dancetrack0019',
+            'dancetrack0034', 'dancetrack0041', 'dancetrack0063',
+            'dancetrack0081', 'dancetrack0097',]
         seqs.sort()
 
         for seq in seqs:
@@ -236,12 +244,12 @@ class Tracker(object):
                 # save results
                 results.append((frame_id + 1, online_tlwhs, online_ids))
 
-                # visualization
+                # # visualization
                 # online_im = plot_tracking(
                 #     img, online_tlwhs, online_ids, frame_id=frame_id + 1, fps=1. / timer.average_time
                 # )
                 # cv2.imshow('online_im', online_im)
-                # if cv2.waitKey(1) & 0xFF == ord('q'):
+                # if cv2.waitKey(0) & 0xFF == ord('q'):
                 #     break
 
                 # vid_writer.write(online_im)
@@ -254,16 +262,19 @@ class Tracker(object):
             result_filename = os.path.join(result_root, '{}.txt'.format(seq))
             write_results(result_filename, results)
 
-        # Run trackEval
-        cmd = f"""python /home/tanndds/my/uav-track/TrackEval/scripts/run_visdrone.py \
-        --BENCHMARK {self.config['dataset']} \
-        --DO_PREPROC False  \
-        --SPLIT_TO_EVAL val \
-        --USE_PARALLEL True \
-        --TRACKERS_FOLDER {self.config['model_dir']}/results/ \
-        --TRACKERS_TO_EVAL epoch_{self.config['epochs']}
-        """
-        os.system(cmd)
+        if not self.val_set == 'test':
+            # Run trackEval
+            cmd = f"""python /home/tanndds/my/uav-track/TrackEval/scripts/run_visdrone.py \
+            --BENCHMARK {self.config['dataset']} \
+            --DO_PREPROC False  \
+            --SPLIT_TO_EVAL {self.val_set} \
+            --USE_PARALLEL True \
+            --TRACKERS_FOLDER {self.config['model_dir']}/results/ \
+            --TRACKERS_TO_EVAL epoch_{self.config["epochs"]}{"_" if self.config.get("postfix", "") != "" else ""}{self.config.get("postfix", "")}
+            """
+            os.system(cmd)
+        else:
+            print('Can\'t run trackEval on test set, finish evaluation...')
 
     def _init_data_loader(self):
         train_path = os.path.join(self.config['data_dir'], 'train')
@@ -313,12 +324,14 @@ class Tracker(object):
                 print(f'Checkpoint file {weight_dir} not found, evaluation failed...')
                 exit()
             else:
-                model.load_state_dict(torch.load(weight_dir))
+                model.load_state_dict(torch.load(weight_dir, weights_only=True))
                 print('Model loaded from ', weight_dir)
                 self._init_eval_dir()
 
-        print('Number of Model\'s parameters: ', sum(p.numel() for p in model.parameters() if p.requires_grad))
         self.model = model.to(self.device)
+        print('Number of Model\'s parameters: ', sum(p.numel() for p in model.parameters() if p.requires_grad))
+        with open(os.path.join(self.config['model_dir'], 'model.txt'), 'w') as f:
+            f.write(str(model))
 
 
     def _init_optimizer(self):
@@ -329,7 +342,14 @@ class Tracker(object):
 
     def _init_model_dir(self):
         if not self.config['model_dir'].startswith('experiments'):
+            if not self.config['eval']:
+                import re
+                if re.match(r'\d{8}-\d{6}', self.config['model_dir']):
+                    print(f'Found timestamp in {self.config["model_dir"]}, replacing it...')
+                    self.config['model_dir'] = re.sub(r'\d{8}-\d{6}-', '', self.config['model_dir'], count=1)
+                self.config['model_dir'] = self.config['timestamp'] + '-' + self.config['model_dir']
             self.config['model_dir'] = os.path.join('experiments', self.config['model_dir'])
+
         if not os.path.exists(self.config['model_dir']):
             print('Create model directory:', self.config['model_dir'])
             os.makedirs(self.config['model_dir'], exist_ok=True)
@@ -337,20 +357,26 @@ class Tracker(object):
         with open(os.path.join(self.config['model_dir'], 'config.yml'), 'w') as f:
             yaml.dump(self.config, f)
 
+
     def _init_eval_dir(self):
+        if 'test' in self.config['config']:
+            self.val_set = 'test'
+        else:
+            self.val_set = 'val'
+            if self.config.get('small', False):
+                self.val_set = 'val-small'
         eval_dir = os.path.join(self.config['model_dir'],
                                 'results',
-                                f'{self.config["dataset"]}-val',
-                                f'epoch_{self.config["epochs"]}',
+                                f'{self.config["dataset"]}-{self.val_set}',
+                                f'epoch_{self.config["epochs"]}{"_" if self.config.get("postfix", "") != "" else ""}{self.config.get("postfix", "")}',
                                 'data')
         os.makedirs(eval_dir, exist_ok=True)
         return eval_dir
 
 
-    def _init_tensorboard(self):
+    def _init_writer(self):
         log_dir = os.path.join('experiments', self.get_exp_name, 'logs')
-        writer = SummaryWriter(log_dir=log_dir)
-        self.writer = writer
+        self.writer = SummaryWriter(log_dir=log_dir)
         print('Tensorboard logs will be saved at:', log_dir)
 
     @property
