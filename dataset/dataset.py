@@ -71,18 +71,6 @@ class TrackingDataset(Dataset):
             }
             self.data.append(data_item)
 
-    def augment_data(self, boxes):
-        """Augment the data item, by offset the boxes by a small random value."""
-        boxes = np.array(boxes)
-        xywh = boxes[:, :4]
-        xywh += np.random.normal(0, self.aug_random_var, xywh.shape)
-
-        boxes[1:, :4] = xywh[1:]
-        delta_xywh = boxes[:, 4:]
-        delta_xywh[1:, :] = xywh[1:] - xywh[:-1]
-        boxes[:, 4:] = delta_xywh
-        return boxes
-
     def __len__(self):
         return len(self.data)
 

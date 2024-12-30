@@ -37,12 +37,13 @@ class BasePositionPredictor(nn.Module):
             tmp_c[:, 1::2] = tmp_c[:, 1::2] / img_h
 
             # pad the condition to the interval
-            if len(tmp_c) != self.config['interval']:
+            if len(tmp_c) < self.config['interval']:
                 not_enough_info = True
                 pad_conds = tmp_c[-1].repeat((self.config['interval'] - len(tmp_c), 1)).to("cuda")
                 pad_conds = self.augment_data(pad_conds)
                 tmp_c = torch.cat((tmp_c.unsqueeze(0), pad_conds), dim=1)
             else:
+                tmp_c = tmp_c[-self.config['interval']:]
                 tmp_c = tmp_c.unsqueeze(0)
             cond_encodeds.append(tmp_c)
         cond_encodeds = torch.cat(cond_encodeds).to("cuda")

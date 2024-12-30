@@ -94,24 +94,16 @@ class Tracker(object):
             delta_bbox = batch['delta_bbox'].float()
 
             with torch.amp.autocast('cuda'):
-                if self.config['network'] == 'autoencoder':
-                    recon, predicted_delta_bbox = self.model(conditions)
-                    recon = recon.view(-1, 9, 8)
-                    recon_loss = self.criterion(recon, conditions)
-                    delta_loss = self.criterion(predicted_delta_bbox, delta_bbox)
-                    loss = recon_loss + delta_loss
-                elif self.config['network'] == 'vae':
-                    recon, predicted_delta_bbox, mu, logvar = self.model(conditions)
-                    loss = self.model.loss_function(recon, conditions, mu, logvar)
-                else:
-                    predicted_delta_bbox = self.model(conditions)
-                    loss = self.criterion(predicted_delta_bbox, delta_bbox)
+                predicted_delta_bbox = self.model(conditions)
+                loss = self.criterion(predicted_delta_bbox, delta_bbox)
 
             if train:
                 self.optimizer.zero_grad()
-                self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                loss.backward()
+                self.optimizer.step()
+                # self.scaler.scale(loss).backward()
+                # self.scaler.step(self.optimizer)
+                # self.scaler.update()
 
             # MeanIoU and MeanADE
             prev_bbox = conditions[:, -1, :4]
@@ -138,7 +130,6 @@ class Tracker(object):
                 self.writer.add_scalar("Loss/train", epoch_loss / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanIoU/train", total_iou / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanADE/train", total_ade / len(data_loader), self.epoch)
-                self.writer.add_scalar("LR", self.optimizer.param_groups[0]['lr'], self.epoch)
             else:
                 # Show current learning_rate
                 for param_group in self.optimizer.param_groups:
@@ -221,7 +212,7 @@ class Tracker(object):
             # )
 
             for i, f in enumerate(frames):
-                if frame_id % 10 == 0:
+                if frame_id % 100 == 0:
                     logger.info('Processing frame {} ({:.2f} fps)'.format(frame_id, 1. / max(1e-5, timer.average_time)))
 
                 timer.tic()
@@ -277,6 +268,17 @@ class Tracker(object):
             os.system(cmd)
         else:
             print('Can\'t run trackEval on test set, finish evaluation...')
+
+            # instead zip it to submit
+            import shutil
+
+            result_root = self.get_eval_dir
+            tracker_folder = os.path.join(result_root, 'tracker')
+            os.makedirs(tracker_folder, exist_ok=True)
+            for seq in seqs:
+                shutil.move(os.path.join(result_root, f'{seq}.txt'), os.path.join(tracker_folder, f'{seq}.txt'))
+            shutil.make_archive(tracker_folder, 'zip', tracker_folder)
+            shutil.rmtree(tracker_folder)
 
     def _init_data_loader(self):
         train_path = os.path.join(self.config['data_dir'], 'train')
@@ -348,18 +350,22 @@ class Tracker(object):
         if not self.config['model_dir'].startswith('experiments'):
             if not self.config['eval']:
                 import re
-                if re.match(r'\d{8}-\d{6}', self.config['model_dir']):
+                if re.match(r'\d{6,8}-\d{6}', self.config['model_dir']):
                     print(f'Found timestamp in {self.config["model_dir"]}, replacing it...')
-                    self.config['model_dir'] = re.sub(r'\d{8}-\d{6}-', '', self.config['model_dir'], count=1)
+                    self.config['model_dir'] = re.sub(r'\d{6,8}-\d{6}-', '', self.config['model_dir'], count=1)
                 self.config['model_dir'] = self.config['timestamp'] + '-' + self.config['model_dir']
             self.config['model_dir'] = os.path.join('experiments', self.config['model_dir'])
 
+
         if not os.path.exists(self.config['model_dir']):
+            if self.config['eval']:
+                raise FileNotFoundError(f"Model directory {self.config['model_dir']} not found, evaluation failed...")
+
             print('Create model directory:', self.config['model_dir'])
             os.makedirs(self.config['model_dir'], exist_ok=True)
 
-        with open(os.path.join(self.config['model_dir'], 'config.yml'), 'w') as f:
-            yaml.dump(self.config, f)
+            with open(os.path.join(self.config['model_dir'], 'config.yml'), 'w') as f:
+                yaml.dump(self.config, f)
 
 
     def _init_eval_dir(self):

@@ -64,7 +64,7 @@ class TemporalConvNet(nn.Module):
         for i in range(num_blocks):
             in_channels = num_inputs if i == 0 else num_channels[i - 1]
             out_channels = num_channels[i]
-            dilation = 2 ** i  # Exponentially increasing dilation
+            dilation = 2 ** i
             layers.append(
                 TCNResidualBlock(in_channels, out_channels, kernel_size, dilation, dropout)
             )
