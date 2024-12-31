@@ -52,7 +52,7 @@ def main():
                 v = False
             config[k] = v
 
-    config['timestamp'] = time.strftime('%Y%m%d-%H%M%S')
+    config['timestamp'] = time.strftime('%d%m%y-%H%M%S')
 
     print('Config:', config)
 

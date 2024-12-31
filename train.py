@@ -1,4 +1,6 @@
 import os
+import shutil
+
 import yaml
 from tqdm import tqdm
 import torch
@@ -312,9 +314,9 @@ class Tracker(object):
                                          residual_channels=64,
                                          skip_channels=64,
                                          out_channels=4,
-                                         kernel_size=3,
-                                         num_blocks=2,
-                                         num_layers=4)
+                                         kernel_size=self.config.get('kernel_size', 2),
+                                         num_blocks=self.config.get('num_blocks', 2),
+                                         num_layers=self.config.get('num_layers', 4))
 
         if self.config['resume']:
             if not os.path.exists(self.config['resume']):
