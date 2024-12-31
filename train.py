@@ -6,6 +6,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from cosmo.models.tcn import TCNPredictor
+from cosmo.models.tcn_new import DilatedCausalConvNet
 from dataset.dataset import TrackingDataset, custom_collate_fn, augment_data
 from utils import calculate_iou, calculate_ade, original_shape
 from torch.utils.tensorboard import SummaryWriter
@@ -91,6 +92,9 @@ class Tracker(object):
                 batch[key] = batch[key].to(self.device)
 
             conditions = augment_data(batch['condition'].float())
+            if not train:
+                conds_length = 8
+                conditions = conditions[:, -conds_length:, :]
             delta_bbox = batch['delta_bbox'].float()
 
             with torch.amp.autocast('cuda'):
@@ -99,11 +103,9 @@ class Tracker(object):
 
             if train:
                 self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
-                # self.scaler.scale(loss).backward()
-                # self.scaler.step(self.optimizer)
-                # self.scaler.update()
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
 
             # MeanIoU and MeanADE
             prev_bbox = conditions[:, -1, :4]
@@ -130,12 +132,14 @@ class Tracker(object):
                 self.writer.add_scalar("Loss/train", epoch_loss / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanIoU/train", total_iou / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanADE/train", total_ade / len(data_loader), self.epoch)
+                self.writer.add_scalar("Learning rate", self.optimizer.param_groups[0]['lr'], self.epoch)
             else:
                 # Show current learning_rate
                 for param_group in self.optimizer.param_groups:
                     print(f"Current learning rate: {param_group['lr']:.8f}")
                 self.writer.add_scalar("Loss/val", epoch_loss / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanIoU/val", total_iou / len(data_loader), self.epoch)
+                self.writer.add_scalar("MeanIoU_FromDelta/val", total_iou / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanADE/val", total_ade / len(data_loader), self.epoch)
 
 
@@ -241,8 +245,8 @@ class Tracker(object):
                 # online_im = plot_tracking(
                 #     img, online_tlwhs, online_ids, frame_id=frame_id + 1, fps=1. / timer.average_time
                 # )
-                # cv2.imshow('online_im', online_im)
-                # if cv2.waitKey(1) & 0xFF == ord('q'):
+                # cv2.imshow('dancetrack', online_im)
+                # if cv2.waitKey(0) & 0xFF == ord('q'):
                 #     break
 
                 # vid_writer.write(online_im)
@@ -268,17 +272,6 @@ class Tracker(object):
             os.system(cmd)
         else:
             print('Can\'t run trackEval on test set, finish evaluation...')
-
-            # instead zip it to submit
-            import shutil
-
-            result_root = self.get_eval_dir
-            tracker_folder = os.path.join(result_root, 'tracker')
-            os.makedirs(tracker_folder, exist_ok=True)
-            for seq in seqs:
-                shutil.move(os.path.join(result_root, f'{seq}.txt'), os.path.join(tracker_folder, f'{seq}.txt'))
-            shutil.make_archive(tracker_folder, 'zip', tracker_folder)
-            shutil.rmtree(tracker_folder)
 
     def _init_data_loader(self):
         train_path = os.path.join(self.config['data_dir'], 'train')
@@ -313,7 +306,15 @@ class Tracker(object):
         elif self.config['network'] == 'vae':
             model = VAEPositionPredictor(self.config)
         elif self.config['network'] == 'tcn':
-            model = TCNPredictor(config=self.config, num_inputs=8, num_channels=[16, 32, 64, 128, 256], kernel_size=3, dropout=0.2)
+            # model = TCNPredictor(config=self.config, num_inputs=8, num_channels=[16, 32, 64, 128, 256], kernel_size=3, dropout=0.2)
+            model = DilatedCausalConvNet(config=self.config,
+                                         in_channels=8,
+                                         residual_channels=64,
+                                         skip_channels=64,
+                                         out_channels=4,
+                                         kernel_size=3,
+                                         num_blocks=2,
+                                         num_layers=4)
 
         if self.config['resume']:
             if not os.path.exists(self.config['resume']):
@@ -343,7 +344,7 @@ class Tracker(object):
     def _init_optimizer(self):
         self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.config['lr'])
-        self.scheduler = optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.98)
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.config['epochs'], eta_min=1e-6)
         self.scaler = torch.amp.GradScaler(self.device)
 
     def _init_model_dir(self):

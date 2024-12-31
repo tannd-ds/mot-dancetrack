@@ -16,7 +16,7 @@ class STrack(BaseTrack):
         self.xywh_pmemory = deque([], maxlen=buffer_size)
         self.xywh_amemory = deque([], maxlen=buffer_size)
 
-        self.conds = deque([], maxlen=15)
+        self.conds = deque([], maxlen=16)
 
 
         self._tlwh = np.asarray(tlwh, dtype=float)
@@ -65,7 +65,8 @@ class STrack(BaseTrack):
 
             conds = [st.conds for st in stracks]
 
-            multi_track_pred = model.generate(conds, sample=1, bestof=True, img_w=img_w, img_h=img_h)
+            model.eval()
+            multi_track_pred = model.generate(conds, sample=1, bestof=True, img_w=img_w, img_h=img_h, can_work_with_arbitrary_length=True)
             track_pred = multi_track_pred
 
             track_pred = track_pred + dets

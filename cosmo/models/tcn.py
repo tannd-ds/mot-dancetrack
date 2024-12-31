@@ -10,39 +10,38 @@ class TCNResidualBlock(nn.Module):
             in_channels,
             out_channels,
             kernel_size,
-            padding=(kernel_size - 1) * dilation,
+            padding='same',
             dilation=dilation
         )
         self.conv2 = nn.Conv1d(
             out_channels,
             out_channels,
             kernel_size,
-            padding=(kernel_size - 1) * dilation,
+            padding='same',
             dilation=dilation
         )
         self.weight_norm1 = nn.utils.parametrizations.weight_norm(self.conv1)
         self.weight_norm2 = nn.utils.parametrizations.weight_norm(self.conv2)
+        self.bn1 = nn.BatchNorm1d(out_channels)
+        self.bn2 = nn.BatchNorm1d(out_channels)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
-        self.downsample = nn.Conv1d(in_channels, out_channels, kernel_size=1) if in_channels != out_channels else None
+        self.downsample = nn.Conv1d(in_channels, out_channels, kernel_size=1) if in_channels != out_channels else nn.Identity()
 
     def forward(self, x):
         residual = x
 
         x = self.weight_norm1(x)
+        x = self.bn1(x)
         x = self.relu(x)
         x = self.dropout(x)
 
         x = self.weight_norm2(x)
+        x = self.bn2(x)
         x = self.relu(x)
         x = self.dropout(x)
 
-        if self.downsample:
-            residual = self.downsample(residual)
-
-        if x.size(2) != residual.size(2):
-            x = x[..., :residual.size(2)]
-
+        residual = self.downsample(residual)
         return x + residual
 
 
@@ -102,6 +101,4 @@ if __name__ == "__main__":
     print('Parameters:', sum(p.numel() for p in model.parameters() if p.requires_grad))
     output = model(x)
     print(output.shape)  # Output shape should be (8, 4)
-
-
 
