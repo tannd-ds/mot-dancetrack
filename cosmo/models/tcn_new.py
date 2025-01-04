@@ -37,7 +37,7 @@ class ResidualBlock(nn.Module):
         super(ResidualBlock, self).__init__()
         self.dilated_conv = CausalConv1d(
             in_channels=residual_channels,
-            out_channels=2 * residual_channels,
+            out_channels=2 * residual_channels, # the 2 is for the gate and filter
             kernel_size=kernel_size,
             dilation=dilation
         )
@@ -69,6 +69,9 @@ class DilatedCausalConvNet(BasePositionPredictor):
         self.output_conv1 = nn.Conv1d(skip_channels, skip_channels, kernel_size=1)
         self.output_conv2 = nn.Conv1d(skip_channels, out_channels, kernel_size=1)
         self.alpha = nn.Parameter(torch.tensor(0.5))
+        if config.get('set_alpha', None) is not None:
+            self.alpha.requires_grad = False
+            self.alpha.data.fill_(config['set_alpha'])
 
     def forward(self, x):
         x = x.permute(0, 2, 1)
@@ -100,8 +103,8 @@ if __name__ == "__main__":
         num_blocks=2,
         num_layers=4
     )
-
-    input_tensor = torch.randn(512, 64, 8)  # Batch size 8, 1 input channel, sequence length 64
-    output = model(input_tensor)
     print('Number of parameters:', sum(p.numel() for p in model.parameters()))
-    print(output.shape)  # Expected: [8, 4]
+
+    input_tensor = torch.randn(512, 8)  # Batch size 512, 8 input channel, sequence length 64
+    output = model(input_tensor)
+    print(output.shape)  # Expected: [512, 4]

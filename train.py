@@ -29,8 +29,8 @@ class Tracker(object):
 
         self._init_model_dir()
         self._init_model()
-        self._init_writer()
         if not self.config['eval']:
+            self._init_writer()
             self._init_data_loader()
             self._init_optimizer()
 
@@ -93,9 +93,12 @@ class Tracker(object):
             for key in batch:
                 batch[key] = batch[key].to(self.device)
 
-            conditions = augment_data(batch['condition'].float())
-            if not train:
+            if train:
+                conditions = augment_data(batch['condition'].float(),
+                                          random_length=self.config.get('arbitrary_length_train', False))
+            else:
                 conds_length = 8
+                conditions = augment_data(batch['condition'].float())
                 conditions = conditions[:, -conds_length:, :]
             delta_bbox = batch['delta_bbox'].float()
 
@@ -268,7 +271,7 @@ class Tracker(object):
             --DO_PREPROC False  \
             --SPLIT_TO_EVAL {self.val_set} \
             --USE_PARALLEL True \
-            --TRACKERS_FOLDER {self.config['model_dir']}/results/ \
+            --TRACKERS_FOLDER "{self.config['model_dir']}/results/" \
             --TRACKERS_TO_EVAL epoch_{self.config["epochs"]}{"_" if self.config.get("postfix", "") != "" else ""}{self.config.get("postfix", "")}
             """
             os.system(cmd)
@@ -341,7 +344,6 @@ class Tracker(object):
         print('Number of Model\'s parameters: ', sum(p.numel() for p in model.parameters() if p.requires_grad))
         with open(os.path.join(self.config['model_dir'], 'model.txt'), 'w') as f:
             f.write(str(model))
-
 
     def _init_optimizer(self):
         self.criterion = nn.MSELoss()

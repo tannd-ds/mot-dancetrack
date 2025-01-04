@@ -54,6 +54,8 @@ class TrackingDataset(Dataset):
             track_gt: ndarray
                 Ground truth data for the sequence.
         """
+        if len(track_gt.shape) < 2:
+            return
         boxes = track_gt[:, 2:6]
         deltas = np.diff(boxes, axis=0)
         conds = np.concatenate([boxes[:-1], deltas], axis=1)
@@ -93,10 +95,18 @@ class TrackingDataset(Dataset):
         # Display the image
         img.show()
 
-def augment_data(boxes, aug_random_var=0.001):
+def randomly_truncate_boxes(boxes):
+    trajectory_length = boxes.shape[1]
+    random_number = torch.randint(0, trajectory_length-4, (1,)).item()
+    return boxes[:, random_number:, :]
+
+def augment_data(boxes, aug_random_var=0.001, random_length=False):
     noise = torch.randn_like(boxes[:, :, :4]) * aug_random_var
     boxes[:, :, :4] += noise.to(boxes.device)
     boxes[:, 1:, 4:] = boxes[:, 1:, :4] - boxes[:, :-1, :4]
+
+    if random_length:
+        return randomly_truncate_boxes(boxes)
     return boxes
 
 

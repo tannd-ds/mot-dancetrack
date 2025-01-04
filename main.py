@@ -1,4 +1,5 @@
 import argparse
+import os
 import yaml
 import time
 from train import Tracker
@@ -7,7 +8,7 @@ from train import Tracker
 def parse_args():
     parser = argparse.ArgumentParser(
         description='Pytorch implementation of MID')
-    parser.add_argument('--config', default='configs/default.yml', help='Path to the config file')
+    parser.add_argument('--config', default=None, help='Path to the config file')
     parser.add_argument('--dataset', default=None, help='Dataset name')
     parser.add_argument('--data_dir', default=None, help='Path to the data directory')
     parser.add_argument('--network', choices=['unet', 'transformer', 'fc', 'autoencoder', 'vae', 'cnn', 'tcn'], help='Unet version')
@@ -41,6 +42,12 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if args.config is None:
+        if args['eval']:
+            print(f'Use config file {args["model_dir"]}/config.yml')
+            args['config'] = os.path.join('experiments',
+                                          args['model_dir'].replace('experiments/', ''),
+                                          'config.yml')
     with open(args.config) as f:
         config = yaml.safe_load(f)
 
@@ -64,6 +71,7 @@ def main():
 
         tracker.writer.flush()
         tracker.writer.close()
+    # tracker.draw()
 
 
 if __name__ == '__main__':
