@@ -39,27 +39,32 @@ def parse_args():
             print('Invalid argument:', k, v)
     return args
 
-
-def main():
-    args = parse_args()
-    if args.config is None:
+def parse_config(args):
+    if args['config'] is None:
         if args['eval']:
             print(f'Use config file {args["model_dir"]}/config.yml')
             args['config'] = os.path.join('experiments',
                                           args['model_dir'].replace('experiments/', ''),
                                           'config.yml')
-    with open(args.config) as f:
+    with open(args['config']) as f:
         config = yaml.safe_load(f)
+    config['timestamp'] = time.strftime('%d%m%y-%H%M%S')
+    return config
 
-    for k, v in vars(args).items():
+
+def main():
+    args = parse_args()
+    args = vars(args)
+
+    config = parse_config(args)
+
+    for k, v in args.items():
         if v is not None:
             if v == 'True':
                 v = True
             if v == 'False':
                 v = False
             config[k] = v
-
-    config['timestamp'] = time.strftime('%d%m%y-%H%M%S')
 
     print('Config:', config)
 

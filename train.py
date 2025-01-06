@@ -2,22 +2,18 @@ import os
 import shutil
 
 import yaml
+from torch import nn
 from tqdm import tqdm
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from cosmo.models.tcn import TCNPredictor
-from cosmo.models.tcn_new import DilatedCausalConvNet
 from dataset.dataset import TrackingDataset, custom_collate_fn, augment_data
 from utils import calculate_iou, calculate_ade, original_shape
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.model_selection import KFold
 
-from cosmo.models.TransformerBase import *
-from cosmo.models.Autoencoder import *
-from cosmo.models.Convolution import *
-from cosmo.models.simple import *
+from cosmo.models.tcn_new import DilatedCausalConvNet
 from cosmo.tracking_utils.visualization import plot_tracking
 
 
@@ -147,7 +143,6 @@ class Tracker(object):
                 self.writer.add_scalar("MeanIoU_FromDelta/val", total_iou / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanADE/val", total_ade / len(data_loader), self.epoch)
 
-
     def eval(self):
         """ Evaluate the model """
         import numpy as np
@@ -186,12 +181,6 @@ class Tracker(object):
             img_root = det_root.replace('/detections/', '/')
 
         seqs = [s for s in os.listdir(det_root)]
-        if self.config.get('small', False):
-            seqs = ['dancetrack0005', 'dancetrack0014', 'dancetrack0026',
-            'dancetrack0035', 'dancetrack0043', 'dancetrack0073',
-            'dancetrack0090', 'dancetrack0007', 'dancetrack0019',
-            'dancetrack0034', 'dancetrack0041', 'dancetrack0063',
-            'dancetrack0081', 'dancetrack0097',]
         seqs.sort()
 
         for seq in seqs:
@@ -213,12 +202,6 @@ class Tracker(object):
             frames.sort()
             imgs = [s for s in os.listdir(img_path) if not s.startswith('.')]
             imgs.sort()
-
-            # video_path = os.path.join(self.config['info_dir'], seq, 'output.mp4')
-            # logger.info(f"video save_path is {video_path}")
-            # vid_writer = cv2.VideoWriter(
-            #     video_path, cv2.VideoWriter_fourcc(*"mp4v"), 30, (int(seq_width), int(seq_height))
-            # )
 
             for i, f in enumerate(frames):
                 if frame_id % 100 == 0:
@@ -300,26 +283,14 @@ class Tracker(object):
 
 
     def _init_model(self):
-        if self.config['network'] == 'transformer':
-            model = TransformerPositionPredictor(self.config, emb_dim=8)
-        elif self.config['network'] == 'fc':
-            model = FCPositionPredictor(self.config)
-        elif self.config['network'] == 'autoencoder':
-            model = AutoEncoderPositionPredictor(self.config)
-        elif self.config['network'] == 'cnn':
-            model = Conv2dPredictor(self.config)
-        elif self.config['network'] == 'vae':
-            model = VAEPositionPredictor(self.config)
-        elif self.config['network'] == 'tcn':
-            # model = TCNPredictor(config=self.config, num_inputs=8, num_channels=[16, 32, 64, 128, 256], kernel_size=3, dropout=0.2)
-            model = DilatedCausalConvNet(config=self.config,
-                                         in_channels=8,
-                                         residual_channels=64,
-                                         skip_channels=64,
-                                         out_channels=4,
-                                         kernel_size=self.config.get('kernel_size', 2),
-                                         num_blocks=self.config.get('num_blocks', 2),
-                                         num_layers=self.config.get('num_layers', 4))
+        model = DilatedCausalConvNet(config=self.config,
+                                     in_channels=8,
+                                     residual_channels=64,
+                                     skip_channels=64,
+                                     out_channels=4,
+                                     kernel_size=self.config.get('kernel_size', 2),
+                                     num_blocks=self.config.get('num_blocks', 2),
+                                     num_layers=self.config.get('num_layers', 4))
 
         if self.config['resume']:
             if not os.path.exists(self.config['resume']):
