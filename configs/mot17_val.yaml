@@ -1,0 +1,27 @@
+eval: True
+
+interval: 9
+
+# train
+data_dir: '/home/tanndds/my/datasets/MOT17/trackers_gt_t/'
+augment_data: True
+lr: 0.0001
+epochs: 100
+batch_size: 512
+eval_every: 2
+gpus: [0,1,2,3]
+
+# Testing
+dataset: mot
+det_dir: "/home/tanndds/my/datasets/MOT17/detections/train"
+info_dir: '/home/tanndds/my/datasets/MOT17/train'
+
+reid_dir: "./cache/MOT/embeddings_yolox_x"
+high_thres: 0.6
+low_thres: 0.1
+w_assoc_emb: 2.0
+aw_param: 1.2
+preprocess_workers: 16
+
+device: cuda
+eval_device: cuda

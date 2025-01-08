@@ -185,6 +185,11 @@ class Tracker(object):
 
         for seq in seqs:
             print(seq)
+            # check if results exist
+            result_root = self.get_eval_dir
+            if os.path.exists(os.path.join(result_root, '{}.txt'.format(seq))):
+                print(f"Results for {seq} already exist, skipping...")
+                continue
             det_path = os.path.join(det_root, seq)
             img_path = os.path.join(img_root, seq, 'img1')
 
@@ -193,7 +198,7 @@ class Tracker(object):
             seq_width = int(seq_info[seq_info.find('imWidth=') + 8:seq_info.find('\nimHeight')])
             seq_height = int(seq_info[seq_info.find('imHeight=') + 9:seq_info.find('\nimExt')])
 
-            tracker = BYTETracker(self.config)
+            tracker = BYTETracker(self.config, use_reid=True)
             timer = Timer()
             results = []
             frame_id = 0

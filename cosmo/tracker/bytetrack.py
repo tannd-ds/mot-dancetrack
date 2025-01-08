@@ -9,14 +9,14 @@ from .embedding import EmbeddingComputer
 
 class STrack(BaseTrack):
     # shared_kalman = KalmanFilter()
-    def __init__(self, tlwh, score, temp_feat=None, buffer_size=30):
+    def __init__(self, tlwh, score, temp_feat=None, buffer_size=30, conds_max_length=16):
 
         # wait activate
         self.xywh_omemory = deque([], maxlen=buffer_size)
         self.xywh_pmemory = deque([], maxlen=buffer_size)
         self.xywh_amemory = deque([], maxlen=buffer_size)
 
-        self.conds = deque([], maxlen=16)
+        self.conds = deque([], maxlen=conds_max_length)
 
 
         self._tlwh = np.asarray(tlwh, dtype=float)
@@ -222,7 +222,7 @@ class STrack(BaseTrack):
 
 
 class BYTETracker(object):
-    def __init__(self, config, frame_rate=30):
+    def __init__(self, config, frame_rate=30, use_reid=True):
         self.model = None
         if isinstance(config, dict):
             self.config = EasyDict(config)
@@ -240,12 +240,15 @@ class BYTETracker(object):
         self.std = np.array([0.289, 0.274, 0.278], dtype=np.float32).reshape(1, 1, 3)
 
         # self.kalman_filter = KalmanFilter()
-        self.embedder = EmbeddingComputer(self.config, self.config.dataset.lower(), self.config.eval, True)
+        self.use_reid = use_reid
         self.alpha_fixed_emb = 0.95
+        if self.use_reid:
+            self.embedder = EmbeddingComputer(self.config, self.config.dataset.lower(), self.config.eval, True)
 
 
     def dump_cache(self):
-        self.embedder.dump_cache()
+        if self.use_reid:
+            self.embedder.dump_cache()
 
     def update(self, dets_norm, model, frame_id, img_w, img_h, tag, img=None):
         self.model = model
@@ -266,13 +269,11 @@ class BYTETracker(object):
 
 
         dets_embs = np.ones((dets.shape[0], 1))
-        if dets.shape[0] != 0:
+        if self.use_reid and dets.shape[0] != 0:
             dets_embs = self.embedder.compute_embedding(img, dets[:, :4], tag)
         trust = (dets[:, 4] - self.det_thresh) / (1 - self.det_thresh)
         af = self.alpha_fixed_emb
-        # From [self.alpha_fixed_emb, 1], goes to 1 as detector is less confident
         dets_alpha = af + (1 - af) * (1 - trust)
-
 
         if len(dets) > 0:
             '''Detections'''
@@ -294,7 +295,7 @@ class BYTETracker(object):
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
         STrack.multi_predict_diff(strack_pool, self.model, img_w, img_h)
 
-        # # Draw prediction on img
+        # Draw prediction on img
         # for track in strack_pool:
         #     tlbr = track.tlbr
         #     cv2.rectangle(img, (int(tlbr[0]), int(tlbr[1])), (int(tlbr[2]), int(tlbr[3])), (0, 255, 0), 2)
@@ -312,16 +313,19 @@ class BYTETracker(object):
             if a.sum(1).max() == 1 and a.sum(0).max() == 1:
                 matched_indices = np.stack(np.where(a), axis=1)
             else:
-                if emb_cost is None:
-                    emb_cost = 0
-                w_assoc_emb = self.config.w_assoc_emb
-                aw_param = self.config.aw_param
+                if self.use_reid:
+                    if emb_cost is None:
+                        emb_cost = 0
+                    w_assoc_emb = self.config.w_assoc_emb
+                    aw_param = self.config.aw_param
 
-                w_matrix = matching.compute_aw_new_metric(emb_cost, w_assoc_emb, aw_param)
-                emb_cost *= w_matrix
+                    w_matrix = matching.compute_aw_new_metric(emb_cost, w_assoc_emb, aw_param)
+                    emb_cost *= w_matrix
 
-                final_cost = -(iou_matrix + emb_cost)
-                matched_indices = matching.linear_assignment2(final_cost)
+                    final_cost = -(iou_matrix + emb_cost)
+                    matched_indices = matching.linear_assignment2(final_cost)
+                else:
+                    matched_indices = matching.linear_assignment2(-iou_matrix)
         else:
             matched_indices = np.empty(shape=(0, 2))
 
@@ -362,7 +366,8 @@ class BYTETracker(object):
                 activated_starcks.append(track)
             else:
                 track.re_activate(det, self.frame_id, new_id=False)
-                track.update_features(det.emb, alp)
+                if self.use_reid:
+                    track.update_features(det.emb, alp)
                 refind_stracks.append(track)
 
 
@@ -401,7 +406,8 @@ class BYTETracker(object):
         for itracked, idet in matches:
             alp = dets_alpha[idet]
             unconfirmed[itracked].update(detections[idet], self.frame_id)
-            unconfirmed[itracked].update_features(detections[idet].emb, alp)
+            if self.use_reid:
+                unconfirmed[itracked].update_features(detections[idet].emb, alp)
 
             activated_starcks.append(unconfirmed[itracked])
         for it in u_unconfirmed:

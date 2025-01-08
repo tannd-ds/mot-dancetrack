@@ -13,9 +13,9 @@ gpus: [0,1,2,3]
 
 # Testing
 dataset: sports
-det_dir: "/home/tanndds/my/datasets/sportsmot/detections_yolox_x_mix/test"
+det_dir: "/home/tanndds/my/datasets/sportsmot/detections_yolox_x_mix/val"
 #det_dir: "/home/tanndds/my/datasets/sportsmot/detections/test"
-info_dir: '/home/tanndds/my/datasets/sportsmot/test'
+info_dir: '/home/tanndds/my/datasets/sportsmot/val'
 
 reid_dir: "./cache/SportsMOT/embeddings_yolox_x_mix"
 #reid_dir: "./cache/SportsMOT/embeddings_yolox_x"
