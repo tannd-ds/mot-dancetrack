@@ -7,6 +7,7 @@ from tqdm import tqdm
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
+import mlflow
 
 from dataset.dataset import TrackingDataset, custom_collate_fn, augment_data
 from utils import calculate_iou, calculate_ade, original_shape
@@ -134,14 +135,20 @@ class Tracker(object):
                 self.writer.add_scalar("MeanIoU/train", total_iou / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanADE/train", total_ade / len(data_loader), self.epoch)
                 self.writer.add_scalar("Learning rate", self.optimizer.param_groups[0]['lr'], self.epoch)
+                mlflow.log_metric("Loss/train", epoch_loss / len(data_loader), self.epoch)
+                mlflow.log_metric("MeanIoU/train", total_iou / len(data_loader), self.epoch)
+                mlflow.log_metric("MeanADE/train", total_ade / len(data_loader), self.epoch)
+                mlflow.log_metric("Learning rate", self.optimizer.param_groups[0]['lr'], self.epoch)
             else:
-                # Show current learning_rate
                 for param_group in self.optimizer.param_groups:
                     print(f"Current learning rate: {param_group['lr']:.8f}")
                 self.writer.add_scalar("Loss/val", epoch_loss / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanIoU/val", total_iou / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanIoU_FromDelta/val", total_iou / len(data_loader), self.epoch)
                 self.writer.add_scalar("MeanADE/val", total_ade / len(data_loader), self.epoch)
+                mlflow.log_metric("Loss/val", epoch_loss / len(data_loader), self.epoch)
+                mlflow.log_metric("MeanIoU/val", total_iou / len(data_loader), self.epoch)
+                mlflow.log_metric("MeanADE/val", total_ade / len(data_loader), self.epoch)
 
     def eval(self):
         """ Evaluate the model """

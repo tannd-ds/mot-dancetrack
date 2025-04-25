@@ -2,6 +2,7 @@ import argparse
 import os
 import yaml
 import time
+import mlflow
 from train import Tracker
 
 
@@ -73,10 +74,19 @@ def main():
         tracker.eval()
     else:
         tracker.train()
+    with mlflow.start_run(run_name=config['model_dir'].replace('experiments/', '')):
+        mlflow.log_params(config)
+        if config['eval']:
+            tracker.eval()
+        else:
+            tracker.train()
 
         tracker.writer.flush()
         tracker.writer.close()
     # tracker.draw()
+            tracker.writer.flush()
+            tracker.writer.close()
+        # tracker.draw()
 
 
 if __name__ == '__main__':
