@@ -16,6 +16,8 @@ def parse_args():
     parser.add_argument('--epochs', type=int, default=None, help='Number of epochs')
     parser.add_argument('--resume', default=False, help='Path to the checkpoint file')
     parser.add_argument('--eval', type=str, help='Evaluate the model')
+    parser.add_argument('--use_temporal_attention', default=True, help='Use temporal attention')
+    parser.add_argument('--ta_use_prior_init', default=False, help='Initialize temporal attention with prior')
     args, arbitrary_args = parser.parse_known_args()
 
     def is_valid_arbitrary_arg_pair(arg1, arg2):

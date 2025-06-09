@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from cosmo.models.Base import BasePositionPredictor
+from Base import BasePositionPredictor
 
 
 class CausalConv1d(nn.Module):
@@ -53,10 +53,37 @@ class ResidualBlock(nn.Module):
         skip = self.skip_out(activation)
 
         return (x + residual) * 0.707, skip
+    
+class TemporalAttention(nn.Module):
+    def __init__(self, channels=4, hidden_dim=32, interval=None, use_prior_init=False):
+        super().__init__()
+        self.attn = nn.Sequential(
+            nn.Conv1d(channels, hidden_dim, kernel_size=1),
+            nn.ReLU(),
+            nn.Conv1d(hidden_dim, 1, kernel_size=1)
+        )
+        self.use_prior_init = use_prior_init
+        if use_prior_init:
+            assert interval is not None, "interval must be provided if use_prior_init is True"
+            prior = torch.arange(interval, 0, -1, dtype=torch.float32)
+            prior = prior / prior.sum()
+            self.register_buffer("attn_prior", prior.log().view(1, 1, interval))  # [1, 1, interval]
+        else:
+            self.attn_prior = None
+
+    def forward(self, x):
+        # x: [batch, channels, interval]
+        attn_scores = self.attn(x)  # [batch, 1, interval]
+        if self.use_prior_init and self.attn_prior is not None:
+            attn_scores = attn_scores + self.attn_prior  # broadcast add
+        attn_weights = torch.softmax(attn_scores, dim=2)  # [batch, 1, interval]
+        attended = torch.matmul(x, attn_weights.transpose(1, 2)).squeeze(-1)  # [batch, channels]
+        return attended, attn_weights
 
 
 class DilatedCausalConvNet(BasePositionPredictor):
-    def __init__(self, config, in_channels, residual_channels, skip_channels, out_channels, kernel_size, num_blocks, num_layers):
+    def __init__(self, config, in_channels, residual_channels, skip_channels, out_channels, kernel_size, num_blocks, num_layers, 
+                 use_temporal_attention=True, ta_use_prior_init=False, interval=None, ta_hidden_dim=32):
         super(DilatedCausalConvNet, self).__init__(config)
         self.input_conv = CausalConv1d(in_channels, residual_channels, kernel_size=1)
 
@@ -73,6 +100,16 @@ class DilatedCausalConvNet(BasePositionPredictor):
             self.alpha.requires_grad = False
             self.alpha.data.fill_(config['set_alpha'])
 
+        self.use_temporal_attention = use_temporal_attention
+        if use_temporal_attention:
+            assert interval is not None, "interval must be provided if using temporal attention"
+            self.temporal_attention = TemporalAttention(
+                channels=out_channels,
+                hidden_dim=ta_hidden_dim,
+                interval=interval,
+                use_prior_init=ta_use_prior_init
+            )
+
     def forward(self, x):
         x = x.permute(0, 2, 1)
         x = self.input_conv(x)
@@ -86,10 +123,17 @@ class DilatedCausalConvNet(BasePositionPredictor):
         combined = self.alpha * skip_sum + (1 - self.alpha) * x
         x = F.relu(combined)
         x = F.relu(self.output_conv1(x))
-        x = self.output_conv2(x)
+        x = self.output_conv2(x)  # [batch, out_channels, interval]
 
-        x = torch.mean(x, dim=-1)  # Global average pooling along time dimension
-        return x
+        if self.use_temporal_attention:
+            x, attn_weights = self.temporal_attention(x)  # [batch, out_channels]
+            return x
+        else:
+            # Optionally, you could use mean pooling if not using attention
+            x = torch.mean(x, dim=-1)
+            return x
+
+# ...existing TemporalAttention class...
 
 
 if __name__ == "__main__":
@@ -101,10 +145,14 @@ if __name__ == "__main__":
         out_channels=4,
         kernel_size=2,
         num_blocks=2,
-        num_layers=4
+        num_layers=4,
+        use_temporal_attention=True,
+        ta_use_prior_init=False,
+        interval=9,
+        ta_hidden_dim=32,
     )
     print('Number of parameters:', sum(p.numel() for p in model.parameters()))
 
-    input_tensor = torch.randn(512, 8)  # Batch size 512, 8 input channel, sequence length 64
+    input_tensor = torch.randn(16, 9, 8)  # Batch size 16, 9 input channel, sequence length 8
     output = model(input_tensor)
     print(output.shape)  # Expected: [512, 4]
