@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from Base import BasePositionPredictor
+from cosmo.models.Base import BasePositionPredictor
 
 
 class CausalConv1d(nn.Module):
