@@ -295,11 +295,7 @@ class Tracker(object):
                                      out_channels=4,
                                      kernel_size=self.config.get('kernel_size', 2),
                                      num_blocks=self.config.get('num_blocks', 2),
-                                     num_layers=self.config.get('num_layers', 4),
-                                     use_temporal_attention=self.config.get('use_temporal_attention', True),
-                                     interval=self.config.get('interval', 5),
-                                     ta_hidden_dim=32,
-                                     ta_use_prior_init=self.config.get('ta_use_prior_init', False))
+                                     num_layers=self.config.get('num_layers', 4))
 
         if self.config['resume']:
             if not os.path.exists(self.config['resume']):

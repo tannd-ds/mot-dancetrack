@@ -14,8 +14,6 @@ def parse_args():
     parser.add_argument('--network', choices=['unet', 'transformer', 'fc', 'autoencoder', 'vae', 'cnn', 'tcn'], help='Unet version')
     parser.add_argument('--model_dir', default=None, help='Path to the model directory, to save logs and checkpoints')
     parser.add_argument('--epochs', type=int, default=None, help='Number of epochs')
-    parser.add_argument('--use_temporal_attention', default=True, help='Use temporal attention')
-    parser.add_argument('--ta_use_prior_init', default=False, help='Use prior initialization for temporal attention')
     parser.add_argument('--resume', default=False, help='Path to the checkpoint file')
     parser.add_argument('--eval', type=str, help='Evaluate the model')
     args, arbitrary_args = parser.parse_known_args()
